@@ -26,6 +26,7 @@ from contextlib import asynccontextmanager
 from azure.cosmos import PartitionKey
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from app.api.routes import chat, health, pipeline
 from app.core.container import Container
@@ -207,12 +208,13 @@ def create_app() -> FastAPI:
     app.include_router(pipeline.router, prefix="/api")
     app.include_router(chat.router, prefix="/api")
 
+    # Redirect root to docs
+    @app.get("/", include_in_schema=False)
+    async def root():
+        return RedirectResponse(url="/docs")
+
     return app
 
 
 # Create app instance
 app = create_app()
-
-
-
-

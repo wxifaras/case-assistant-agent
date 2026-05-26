@@ -31,6 +31,37 @@ from app.ingestion.search_pipeline_orchestrator import ISearchPipelineOrchestrat
 router = APIRouter(prefix="/pipeline", tags=["Ingestion Pipeline"])
 
 
+def _serialize_indexer_issue(issue: Any) -> dict[str, Any]:
+    """Serialize an indexer error/warning object into JSON-safe fields."""
+    return {
+        "key": getattr(issue, "key", None) or getattr(issue, "name", None) or getattr(issue, "document_key", None),
+        "skill": getattr(issue, "name", None),
+        "status_code": getattr(issue, "status_code", None),
+        "message": getattr(issue, "error_message", None) or getattr(issue, "message", None) or str(issue),
+        "details": getattr(issue, "details", None),
+    }
+
+
+def _serialize_execution_result(result: Any) -> dict[str, Any]:
+    """Serialize indexer execution details, including per-item issues."""
+    start_time = getattr(result, "start_time", None)
+    end_time = getattr(result, "end_time", None)
+
+    errors = [_serialize_indexer_issue(e) for e in (getattr(result, "errors", None) or [])]
+    warnings = [_serialize_indexer_issue(w) for w in (getattr(result, "warnings", None) or [])]
+
+    return {
+        "status": getattr(result, "status", None),
+        "error_message": getattr(result, "error_message", None),
+        "start_time": start_time.isoformat() if start_time else None,
+        "end_time": end_time.isoformat() if end_time else None,
+        "items_processed": getattr(result, "item_count", None),
+        "items_failed": getattr(result, "failed_item_count", None),
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
 def success(message: str, data: dict[str, Any] | None = None, status_code: int = 200) -> JSONResponse:
     """Create a standardised success JSON response.
 
@@ -204,24 +235,14 @@ async def get_indexer_status(
         logger.info(f"Retrieving status for indexer: {indexer_name}")
         status: SearchIndexerStatus = await indexer_service.get_indexer_status_async(indexer_name)
 
-        # Extract relevant status information
+        # Extract detailed status information, including per-item issues.
+        execution_history = list(getattr(status, "execution_history", None) or [])
+
         status_info: dict[str, Any] = {
             "indexer_name": status.name,
             "status": status.status,
-            "last_result": (
-                {
-                    "status": status.last_result.status,
-                    "error_message": getattr(status.last_result, "error_message", None),
-                    "start_time": (
-                        status.last_result.start_time.isoformat() if status.last_result.start_time else None
-                    ),
-                    "end_time": (status.last_result.end_time.isoformat() if status.last_result.end_time else None),
-                    "items_processed": status.last_result.item_count,
-                    "items_failed": status.last_result.failed_item_count,
-                }
-                if status.last_result
-                else None
-            ),
+            "last_result": _serialize_execution_result(status.last_result) if status.last_result else None,
+            "execution_history": [_serialize_execution_result(item) for item in execution_history[:3]],
         }
 
         logger.info(f"Indexer status retrieved: {status.status}")
