@@ -1,0 +1,19 @@
+# Sample env file for Playground-only local dev (no Teams tenant / SSO).
+#
+# Copy to `.localConfigs` and run `npm run dev:teamsfx` to start the bot at
+# http://localhost:3978/api/messages, then launch the Agents Playground:
+#
+#     winget install agentsplayground
+#     agentsplayground -e http://localhost:3978/api/messages -c msteams
+#
+# SSO values are intentionally blank — the `show` command will fail in Playground,
+# but free-form messages are routed to the Case Assistant FastAPI backend.
+
+clientId=
+clientSecret=
+tenantId=
+BOT_DOMAIN=localhost:3978
+BOT_SSO_CONNECTION_NAME=SSOSelf
+
+# Case Assistant FastAPI backend (run via the "FastAPI: Run Dev Server" task).
+AGENT_URL=http://localhost:8000

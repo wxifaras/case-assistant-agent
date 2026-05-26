@@ -1,0 +1,220 @@
+.container {
+    margin-top: 12px;
+    border: 1px solid rgba(115, 118, 225, 0.2);
+    border-radius: 8px;
+    background: rgba(115, 118, 225, 0.03);
+    overflow: hidden;
+}
+
+.headerButton {
+    width: 100%;
+    padding: 10px 14px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color 0.15s ease;
+}
+
+.headerButton:hover {
+    background: rgba(115, 118, 225, 0.08);
+}
+
+.headerButton:focus {
+    outline: 2px solid rgba(115, 118, 225, 0.5);
+    outline-offset: -2px;
+}
+
+.headerIcon {
+    color: rgba(115, 118, 225, 1);
+    font-size: 16px;
+}
+
+.headerText {
+    font-size: 13px;
+    font-weight: 600;
+    color: #323130;
+}
+
+.badges {
+    margin-left: auto;
+    margin-right: 8px;
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: rgba(115, 118, 225, 0.1);
+    border-radius: 12px;
+    font-size: 11px;
+    color: #605e5c;
+}
+
+.badgeIcon {
+    font-size: 10px;
+    color: rgba(115, 118, 225, 0.8);
+}
+
+.chevron {
+    font-size: 12px;
+    color: #605e5c;
+    transition: transform 0.2s ease;
+}
+
+.content {
+    padding: 0 14px 14px;
+    border-top: 1px solid rgba(115, 118, 225, 0.1);
+}
+
+.section {
+    margin-top: 14px;
+}
+
+.section:first-child {
+    margin-top: 10px;
+}
+
+.sectionTitle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #323130;
+    margin-bottom: 8px;
+}
+
+.sectionIcon {
+    font-size: 12px;
+    color: rgba(115, 118, 225, 0.8);
+}
+
+/* Timeline styles for thought process */
+.timeline {
+    position: relative;
+    padding-left: 20px;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    background: rgba(115, 118, 225, 0.2);
+}
+
+.timelineItem {
+    position: relative;
+    padding-bottom: 10px;
+}
+
+.timelineItem:last-child {
+    padding-bottom: 0;
+}
+
+.timelineDot {
+    position: absolute;
+    left: -17px;
+    top: 4px;
+    width: 8px;
+    height: 8px;
+    background: rgba(115, 118, 225, 1);
+    border-radius: 50%;
+    border: 2px solid white;
+    box-shadow: 0 0 0 2px rgba(115, 118, 225, 0.3);
+}
+
+.timelineContent {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.stepLabel {
+    font-size: 12px;
+    font-weight: 500;
+    color: #323130;
+}
+
+.stepDetails {
+    font-size: 11px;
+    color: #605e5c;
+}
+
+/* Search history styles */
+.searchList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.searchItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid #edebe9;
+}
+
+.attemptNumber {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(115, 118, 225, 1);
+    min-width: 20px;
+}
+
+.searchQuery {
+    flex: 1;
+    font-size: 12px;
+    color: #323130;
+    font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.resultCount {
+    font-size: 11px;
+    color: #605e5c;
+    white-space: nowrap;
+}
+
+/* Decision styles */
+.decisionList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.decisionItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid #edebe9;
+}
+
+.decisionIcon {
+    font-size: 12px;
+}
+
+.decisionFinalize {
+    color: #107c10;
+}
+
+.decisionRetry {
+    color: #ffaa44;
+}
+
+.decisionText {
+    font-size: 12px;
+    color: #323130;
+}

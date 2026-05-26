@@ -1,0 +1,31 @@
+import { Stack } from "@fluentui/react";
+import { animated, useSpring } from "@react-spring/web";
+
+import styles from "./Answer.module.css";
+import { AnswerIcon } from "./AnswerIcon";
+
+interface AnswerLoadingProps {
+    /** Optional custom loading message (defaults to "Generating answer"). */
+    message?: string;
+}
+
+export const AnswerLoading = ({ message = "Generating answer" }: AnswerLoadingProps) => {
+    const animatedStyles = useSpring({
+        from: { opacity: 0 },
+        to: { opacity: 1 }
+    });
+
+    return (
+        <animated.div style={{ ...animatedStyles }}>
+            <Stack className={styles.answerContainer} verticalAlign="space-between">
+                <AnswerIcon />
+                <Stack.Item grow>
+                    <p className={styles.answerText}>
+                        {message}
+                        <span className={styles.loadingdots} />
+                    </p>
+                </Stack.Item>
+            </Stack>
+        </animated.div>
+    );
+};

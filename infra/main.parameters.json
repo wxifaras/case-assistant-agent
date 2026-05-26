@@ -1,0 +1,58 @@
+{
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "baseName": {
+      "value": "${AZURE_BASE_NAME=caseassistant}"
+    },
+    "location": {
+      "value": "${AZURE_LOCATION}"
+    },
+    "tags": {
+      "value": {
+        "workload": "case-assistant-agent",
+        "azd-env-name": "${AZURE_ENV_NAME}"
+      }
+    },
+    "foundrySkuName": {
+      "value": "S0"
+    },
+    "foundryPublicNetworkAccess": {
+      "value": "Enabled"
+    },
+    "modelDeployments": {
+      "value": [
+        {
+          "name": "gpt-4.1",
+          "model": { "format": "OpenAI", "name": "gpt-4.1", "version": "2025-04-14" },
+          "sku": { "name": "GlobalStandard", "capacity": 50 }
+        },
+        {
+          "name": "text-embedding-3-large",
+          "model": { "format": "OpenAI", "name": "text-embedding-3-large", "version": "1" },
+          "sku": { "name": "Standard", "capacity": 50 }
+        }
+      ]
+    },
+    "searchSkuName": {
+      "value": "standard"
+    },
+    "searchAuthMode": {
+      "value": "aadOnly"
+    },
+    "aiServicesDisableLocalAuth": {
+      "value": true
+    },
+    "cosmosDatabaseName": {
+      "value": "case-assistant-agent-db"
+    },
+    "cosmosContainerName": {
+      "value": "case-assistant-agent-container"
+    },
+    "cosmosDisableLocalAuth": {
+      "value": true
+    },
+    "storageAllowSharedKeyAccess": {
+      "value": false
+    }
+  }
+}

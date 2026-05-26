@@ -1,0 +1,76 @@
+@userId = 54e069a3-f814-4091-b44c-99b3349d58f7
+@sessionId1 = 1cbfd624-e5f3-4c51-9600-8db6bdef9152
+@sessionId2 = 462eba7f-9c9c-4069-a518-f3ab0383ddbd
+@baseUrl = http://localhost:8000/api
+
+###
+
+### Health check
+GET {{baseUrl}}/health
+Accept: application/json
+
+###
+
+### Agentic RAG query (no filters)
+POST {{baseUrl}}/chat/query
+Content-Type: application/json
+
+{
+  "query": "What is the status of my case?",
+  "user_id": "{{userId}}",
+  "session_id": "{{sessionId1}}"
+}
+
+###
+
+### Agentic RAG query (with filters)
+POST {{baseUrl}}/chat/query
+Content-Type: application/json
+
+{
+  "query": "Show me related case documents",
+  "user_id": "{{userId}}",
+  "session_id": "{{sessionId2}}",
+  "filters": {
+    "document_type": "pdf",
+    "custom": "category eq 'general'"
+  }
+}
+
+###
+
+### Get conversation history
+GET {{baseUrl}}/chat/history/{{sessionId1}}?user_id={{userId}}
+Accept: application/json
+
+###
+
+### Get limited conversation history
+GET {{baseUrl}}/chat/history/{{sessionId1}}?user_id={{userId}}&max_messages=5
+Accept: application/json
+
+###
+
+### List user conversations
+GET {{baseUrl}}/chat/conversations/{{userId}}
+Accept: application/json
+
+###
+
+### Get specific conversation thread
+GET {{baseUrl}}/chat/conversations/{{userId}}/{{sessionId1}}
+Accept: application/json
+
+###
+
+### Delete specific conversation thread
+DELETE {{baseUrl}}/chat/conversations/{{userId}}/{{sessionId2}}
+Accept: application/json
+
+###
+
+### Clear all user conversations
+DELETE {{baseUrl}}/chat/conversations/{{userId}}
+Accept: application/json
+
+###

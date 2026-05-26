@@ -1,0 +1,62 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 24px;
+    margin: 16px 0;
+    background: rgba(115, 118, 225, 0.05);
+    border-radius: 8px;
+    border: 1px solid rgba(115, 118, 225, 0.15);
+    max-width: 400px;
+}
+
+.choiceGroup {
+    width: 100%;
+}
+
+.choiceGroup :global(.ms-ChoiceFieldGroup-flexContainer) {
+    display: flex;
+    flex-direction: row;
+    gap: 24px;
+    justify-content: center;
+}
+
+.choiceGroup :global(.ms-ChoiceField-wrapper) {
+    margin-top: 0;
+}
+
+.choiceGroup :global(.ms-ChoiceFieldLabel) {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.choiceGroup :global(.ms-Label) {
+    font-size: 14px;
+    font-weight: 600;
+    color: #323130;
+    margin-bottom: 12px;
+    text-align: center;
+    width: 100%;
+}
+
+.description {
+    margin-top: 12px;
+    text-align: center;
+}
+
+.modeDescription {
+    font-size: 13px;
+    color: #605e5c;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.modeDescription strong {
+    color: rgba(115, 118, 225, 1);
+}
+
+/* Disabled state */
+.container:has(.choiceGroup[disabled]) {
+    opacity: 0.6;
+    pointer-events: none;
+}

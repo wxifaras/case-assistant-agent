@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+# Azure Developer CLI configuration for the Case Assistant Agent.
+#
+# Usage:
+#   azd auth login
+#   azd env new <env-name>
+#   azd up                  # provisions infra, then runs the post-provision RBAC hook
+#
+# Optional environment variables (set with `azd env set <KEY> <VALUE>`):
+#   AZURE_BASE_NAME            Base name for resources (default: caseassistant)
+#   AZURE_RBAC_PRINCIPAL_ID    Object ID of an additional managed identity / SP
+#                              to grant roles to (besides the signed-in user).
+name: case-assistant-agent
+metadata:
+  template: case-assistant-agent@1.0.0
+
+infra:
+  provider: bicep
+  path: infra
+  module: main
+
+hooks:
+  # Runs after `azd provision` (and `azd up`) succeeds.
+  # Grants Azure RBAC roles on the freshly provisioned resources to the
+  # signed-in user (so local dev with DefaultAzureCredential works), and
+  # — when AZURE_RBAC_PRINCIPAL_ID is set — to that managed identity too.
+  postprovision:
+    posix:
+      shell: sh
+      run: ./scripts/azd-postprovision-rbac.sh
+      interactive: true
+      continueOnError: false
+    windows:
+      shell: pwsh
+      run: ./scripts/azd-postprovision-rbac.ps1
+      interactive: true
+      continueOnError: false

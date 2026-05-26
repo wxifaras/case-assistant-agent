@@ -1,0 +1,35 @@
+.container {
+    display: flex;
+    align-items: center;
+    margin-right: 8px;
+}
+
+.input {
+    width: 180px;
+    font-size: 14px;
+}
+
+.input :global(.ms-TextField-fieldGroup) {
+    background: transparent;
+    border-color: rgba(115, 118, 225, 0.4);
+}
+
+.input :global(.ms-TextField-field) {
+    font-size: 13px;
+    color: #323130;
+}
+
+.input :global(.ms-TextField-field)::placeholder {
+    color: #605e5c;
+    font-style: italic;
+}
+
+/* Hover state */
+.input :global(.ms-TextField-fieldGroup):hover {
+    border-color: rgba(115, 118, 225, 0.7);
+}
+
+/* Focus state */
+.input :global(.ms-TextField-fieldGroup)::after {
+    border-color: rgba(115, 118, 225, 1);
+}

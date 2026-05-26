@@ -1,0 +1,223 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Create venv (Python 3.14)",
+            "type": "shell",
+            "command": "py -3.14 -m venv \"${workspaceFolder}\\backend\\.venv\"",
+            "windows": {
+                "command": "py -3.14 -m venv \"${workspaceFolder}\\backend\\.venv\""
+            },
+            "osx": {
+                "command": "python3.14 -m venv ${workspaceFolder}/backend/.venv"
+            },
+            "linux": {
+                "command": "python3.14 -m venv ${workspaceFolder}/backend/.venv"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Install Python Dependencies (dev)",
+            "type": "shell",
+            "osx": {
+                "command": "${workspaceFolder}/backend/.venv/bin/python -m pip install -e ${workspaceFolder}/backend[dev]"
+            },
+            "windows": {
+                "command": "\"${workspaceFolder}\\backend\\.venv\\Scripts\\python\" -m pip install -e \"${workspaceFolder}\\backend[dev]\""
+            },
+            "linux": {
+                "command": "${workspaceFolder}/backend/.venv/bin/python -m pip install -e ${workspaceFolder}/backend[dev]"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "FastAPI: Run Dev Server",
+            "type": "shell",
+            "windows": {
+                "command": "Set-Location '${workspaceFolder}\\backend'; & '${workspaceFolder}\\backend\\.venv\\Scripts\\python.exe' -m uvicorn app.api.main:app --reload --reload-dir app --port 8000"
+            },
+            "osx": {
+                "command": "cd ${workspaceFolder}/backend && ${workspaceFolder}/backend/.venv/bin/python -m uvicorn app.api.main:app --reload --port 8000"
+            },
+            "linux": {
+                "command": "cd ${workspaceFolder}/backend && ${workspaceFolder}/backend/.venv/bin/python -m uvicorn app.api.main:app --reload --port 8000"
+            },
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^.*$",
+                    "file": 1,
+                    "location": 2,
+                    "message": 3
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": ".*Started server process.*",
+                    "endsPattern": ".*Application startup complete.*"
+                }
+            }
+        },
+        {
+            "label": "Run Tests",
+            "type": "shell",
+            "windows": {
+                "command": "Set-Location '${workspaceFolder}\\backend'; & '${workspaceFolder}\\backend\\.venv\\Scripts\\python.exe' -m pytest tests -v"
+            },
+            "osx": {
+                "command": "cd ${workspaceFolder}/backend && ${workspaceFolder}/backend/.venv/bin/python -m pytest tests -v"
+            },
+            "linux": {
+                "command": "cd ${workspaceFolder}/backend && ${workspaceFolder}/backend/.venv/bin/python -m pytest tests -v"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "Run Tests with Coverage",
+            "type": "shell",
+            "windows": {
+                "command": "Set-Location '${workspaceFolder}\\backend'; & '${workspaceFolder}\\backend\\.venv\\Scripts\\python.exe' -m pytest tests --cov=app --cov-report=html --cov-report=term"
+            },
+            "osx": {
+                "command": "cd ${workspaceFolder}/backend && ${workspaceFolder}/backend/.venv/bin/python -m pytest tests --cov=app --cov-report=html --cov-report=term"
+            },
+            "linux": {
+                "command": "cd ${workspaceFolder}/backend && ${workspaceFolder}/backend/.venv/bin/python -m pytest tests --cov=app --cov-report=html --cov-report=term"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "Run API Tests",
+            "type": "shell",
+            "windows": {
+                "command": "httpyac send \"${workspaceFolder}\\backend\\tests\\api-tests.http\" --all"
+            },
+            "osx": {
+                "command": "httpyac send \"${workspaceFolder}/backend/tests/api-tests.http\" --all"
+            },
+            "linux": {
+                "command": "httpyac send \"${workspaceFolder}/backend/tests/api-tests.http\" --all"
+            },
+            "dependsOn": ["FastAPI: Run Dev Server"],
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+			"label": "Frontend: Install Dependencies",
+			"type": "shell",
+			"command": "npm install",
+			"options": {
+				"cwd": "${workspaceFolder}/frontend/simple-chat"
+			},
+			"problemMatcher": []
+		},
+        {
+			"label": "Frontend: Start Dev Server",
+			"type": "shell",
+			"command": "npm run dev",
+			"options": {
+				"cwd": "${workspaceFolder}/frontend/simple-chat"
+			},
+			"isBackground": true,
+			"problemMatcher": {
+				"pattern": {
+					"regexp": "^.*$"
+				},
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": "VITE.*preparing",
+					"endsPattern": "Local:.*http://localhost:8081"
+				}
+			}
+		},
+		{
+			"label": "Teams Bot: Install Dependencies",
+			"type": "shell",
+			"command": "npm install",
+			"options": {
+				"cwd": "${workspaceFolder}/frontend/teams-bot"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Teams Bot: Create .localConfigs",
+			"type": "shell",
+			"windows": {
+				"command": "if (-not (Test-Path .localConfigs)) { Copy-Item .localConfigs.sample .localConfigs; Write-Host 'Created .localConfigs from sample.' } else { Write-Host '.localConfigs already exists; leaving in place.' }"
+			},
+			"osx": {
+				"command": "[ -f .localConfigs ] && echo '.localConfigs already exists; leaving in place.' || (cp .localConfigs.sample .localConfigs && echo 'Created .localConfigs from sample.')"
+			},
+			"linux": {
+				"command": "[ -f .localConfigs ] && echo '.localConfigs already exists; leaving in place.' || (cp .localConfigs.sample .localConfigs && echo 'Created .localConfigs from sample.')"
+			},
+			"options": {
+				"cwd": "${workspaceFolder}/frontend/teams-bot"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Teams Bot: Install M365 Agents Playground",
+			"type": "shell",
+			"windows": {
+				"command": "winget install --id Microsoft.M365AgentsPlayground -e --accept-source-agreements --accept-package-agreements"
+			},
+			"osx": {
+				"command": "echo 'M365 Agents Playground is Windows-only (winget). See https://aka.ms/m365-agents-playground for alternatives.'"
+			},
+			"linux": {
+				"command": "echo 'M365 Agents Playground is Windows-only (winget). See https://aka.ms/m365-agents-playground for alternatives.'"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Teams Bot: Start Dev (Playground)",
+			"type": "shell",
+			"command": "npm run dev:teamsfx",
+			"options": {
+				"cwd": "${workspaceFolder}/frontend/teams-bot"
+			},
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Teams Bot: Launch Playground UI",
+			"type": "shell",
+			"command": "agentsplayground -e http://localhost:3978/api/messages -c msteams",
+			"isBackground": true,
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "Teams Bot: Lint",
+			"type": "shell",
+			"command": "npm run lint",
+			"options": {
+				"cwd": "${workspaceFolder}/frontend/teams-bot"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Teams Bot: Build",
+			"type": "shell",
+			"command": "npm run build",
+			"options": {
+				"cwd": "${workspaceFolder}/frontend/teams-bot"
+			},
+			"problemMatcher": []
+		}
+    ]
+}

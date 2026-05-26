@@ -1,0 +1,36 @@
+# FastAPI Application
+fastapi==0.128.0
+uvicorn[standard]==0.40.0
+
+# Azure Core Dependencies
+azure-search-documents==11.7.0b2  # Pre-release required for AIServicesAccountIdentity
+azure-storage-blob==12.28.0
+azure-identity==1.25.1
+azure-cosmos==4.14.5
+azure-keyvault-secrets==4.10.0
+
+# AI and Agent Framework
+agent-framework==1.1.0
+azure-ai-inference==1.0.0b9
+azure-ai-projects==2.1.0
+azure-ai-evaluation==1.14.0
+azure-ai-textanalytics==5.3.0 # PII detection via Azure AI Language
+openai==2.16.0
+tiktoken==0.12.0
+
+# Configuration and Validation
+pydantic==2.12.5
+pydantic-settings==2.12.0
+azure-appconfiguration-provider>=2.1.0
+python-dotenv==1.2.1
+dependency-injector==4.48.3
+
+# Retry Logic
+tenacity==9.1.2
+
+# Monitoring and Telemetry
+azure-monitor-opentelemetry==1.8.7
+azure-monitor-opentelemetry-exporter==1.0.0b51
+opentelemetry-api==1.40.0
+opentelemetry-sdk==1.40.0
+opentelemetry-semantic-conventions-ai==0.4.13
