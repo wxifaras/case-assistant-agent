@@ -94,6 +94,7 @@ from app.models import (
     AzureOpenAIOptions,
     BlobStorageOptions,
     CosmosDBOptions,
+    FoundryAgentOptions,
     KeyVaultOptions,
     PIIDetectionOptions,
     SearchServiceOptions,
@@ -102,6 +103,7 @@ from app.models import (
 from app.repositories.cosmos_repository import CosmosRepository
 from app.services.chat_history_service import ChatHistoryService, IChatHistoryService
 from app.services.chat_service import ChatService, IChatService
+from app.services.foundry_service import FoundryService, IFoundryService
 from app.services.pii_detection_service import IPIIDetectionService, PIIDetectionService
 from app.services.search_service import ISearchService, SearchService
 from app.utils.citation_tracker import CitationTracker
@@ -254,6 +256,11 @@ class Container(containers.DeclarativeContainer):
         c=config,
     )
 
+    foundry_agent_options: providers.Singleton[FoundryAgentOptions] = providers.Singleton(
+        lambda c: c.foundry_agent_options,
+        c=config,
+    )
+
     search_index_client: providers.Singleton[SearchIndexClient] = providers.Singleton(
         _create_search_index_client,
         options=search_service_options,
@@ -359,6 +366,12 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
     )
 
+    foundry_service: providers.Factory[IFoundryService] = providers.Factory(
+        FoundryService,
+        options=foundry_agent_options,
+        logger=logger,
+    )
+
     cosmos_repository: providers.Singleton[CosmosRepository] = providers.Singleton(
         lambda opts: CosmosRepository(
             endpoint=opts.endpoint or None,
@@ -395,6 +408,8 @@ class Container(containers.DeclarativeContainer):
         workflow_options=workflow_options,
         chat_history_service=chat_history_service,
         workflow=agentic_rag_workflow,
+        foundry_service=foundry_service,
+        foundry_agent_options=foundry_agent_options,
         pii_detection_service=pii_detection_service,
         pii_detection_options=pii_detection_options,
     )
