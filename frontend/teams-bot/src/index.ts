@@ -16,7 +16,6 @@ const expressApp = startServer(bot);
 // including ones that the Agents SDK may not surface (useful for debugging
 // Adaptive Card Action.Submit delivery in the Agents Playground).
 expressApp.use((req, _res, next) => {
-  // eslint-disable-next-line no-console
   console.log(`[HTTP] ${req.method} ${req.url}`);
   next();
 });
