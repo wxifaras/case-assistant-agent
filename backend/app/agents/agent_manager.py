@@ -7,7 +7,13 @@ from typing import Any, Optional
 
 from app.agents.agent_config import CaseAssistantAgentConfig
 from azure.ai.projects.aio import AIProjectClient
-from azure.ai.projects.models import MCPTool, PromptAgentDefinition
+from azure.ai.projects.models import (
+    AISearchIndexResource,
+    AzureAISearchTool,
+    AzureAISearchToolResource,
+    MCPTool,
+    PromptAgentDefinition,
+)
 from azure.core.exceptions import ResourceNotFoundError
 from azure.identity.aio import DefaultAzureCredential
 
@@ -53,11 +59,73 @@ class AgentManager:
         except ResourceNotFoundError:
             return None
 
+    async def _resolve_connection_id(self, connection_name: str) -> str:
+        client = self._ensure_client()
+        conn = await client.connections.get(connection_name)
+        conn_id = getattr(conn, "id", None)
+        if not conn_id:
+            raise RuntimeError(
+                f"Foundry connection '{connection_name}' has no id; cannot bind Azure AI Search tool"
+            )
+        return str(conn_id)
+
+    async def _build_azure_ai_search_tool(self, tool: dict[str, Any]) -> AzureAISearchTool:
+        cfg = tool.get("azure_ai_search") or {}
+        indexes_cfg = cfg.get("indexes")
+        if not indexes_cfg:
+            # Single-index shorthand at the top of azure_ai_search block.
+            indexes_cfg = [cfg]
+
+        index_resources: list[AISearchIndexResource] = []
+        for idx in indexes_cfg:
+            project_connection_id = idx.get("project_connection_id") or idx.get("index_connection_id")
+            if not project_connection_id:
+                connection_name = idx.get("connection_name")
+                if not connection_name:
+                    raise ValueError(
+                        "azure_ai_search tool requires 'project_connection_id' or 'connection_name'"
+                    )
+                project_connection_id = await self._resolve_connection_id(connection_name)
+
+            index_name = idx.get("index_name")
+            if not index_name:
+                raise ValueError("azure_ai_search tool requires 'index_name'")
+
+            resource_kwargs: dict[str, Any] = {
+                "project_connection_id": project_connection_id,
+                "index_name": index_name,
+            }
+            if "query_type" in idx and idx["query_type"]:
+                resource_kwargs["query_type"] = idx["query_type"]
+            if "top_k" in idx and idx["top_k"] is not None:
+                resource_kwargs["top_k"] = int(idx["top_k"])
+            if "filter" in idx and idx["filter"]:
+                resource_kwargs["filter"] = idx["filter"]
+
+            index_resources.append(AISearchIndexResource(**resource_kwargs))
+
+        return AzureAISearchTool(
+            azure_ai_search=AzureAISearchToolResource(indexes=index_resources)
+        )
+
+    async def _build_tools(self, raw_tools: list[Any]) -> list[Any]:
+        tools: list[Any] = []
+        for t in raw_tools:
+            if not isinstance(t, dict):
+                tools.append(t)
+                continue
+            tool_type = str(t.get("type") or "").lower()
+            if tool_type == "azure_ai_search":
+                tools.append(await self._build_azure_ai_search_tool(t))
+            else:
+                tools.append(MCPTool(**_normalize_tool(t)))
+        return tools
+
     async def ensure_agent(self, config: Optional[dict[str, Any]] = None):
         client = self._ensure_client()
         cfg = config or CaseAssistantAgentConfig.get_agent_config()
 
-        tools = [MCPTool(**_normalize_tool(t)) if isinstance(t, dict) else t for t in (cfg.get("tools") or [])]
+        tools = await self._build_tools(cfg.get("tools") or [])
 
         definition = PromptAgentDefinition(
             model=cfg["model"],
