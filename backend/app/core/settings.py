@@ -27,6 +27,7 @@ from app.models.config_options import (
     AzureOpenAIOptions,
     BlobStorageOptions,
     CosmosDBOptions,
+    FoundryAgentOptions,
     KeyVaultOptions,
     PIIDetectionOptions,
     SearchServiceOptions,
@@ -320,6 +321,21 @@ class APISettings(AppConfigAwareSettings):
     enable_docs: bool = Field(default=True, description="Enable Swagger/OpenAPI documentation endpoints")
 
 
+class FoundryAgentSettings(AppConfigAwareSettings):
+    """Foundry prompt-agent runtime settings."""
+
+    model_config = SettingsConfigDict(env_prefix="FOUNDRY_", env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    agent_enabled: bool = Field(default=False, description="Enable Foundry prompt-agent path")
+    project_endpoint: str | None = Field(
+        default=None,
+        description="Foundry project endpoint URL (recommended: https://<account>.services.ai.azure.com/api/projects/<project>)",
+    )
+    agent_name: str | None = Field(default=None, description="Foundry prompt-agent name")
+    model: str | None = Field(default=None, description="Model deployment name used by the prompt agent")
+    agent_timeout_seconds: int = Field(default=90, description="Timeout in seconds for prompt-agent runs")
+
+
 class Settings(AppConfigAwareSettings):
     """Unified application settings loaded from environment variables or a ``.env`` file.
 
@@ -340,6 +356,7 @@ class Settings(AppConfigAwareSettings):
     app_insights: ApplicationInsightsSettings = Field(default_factory=lambda: ApplicationInsightsSettings())  # type: ignore[call-arg]
     workflow: WorkflowSettings = Field(default_factory=lambda: WorkflowSettings())  # type: ignore[call-arg]
     pii_detection: PIIDetectionSettings = Field(default_factory=lambda: PIIDetectionSettings())  # type: ignore[call-arg]
+    foundry_agent: FoundryAgentSettings = Field(default_factory=lambda: FoundryAgentSettings())  # type: ignore[call-arg]
     sharepoint: SharePointSettings = Field(default_factory=lambda: SharePointSettings())  # type: ignore[call-arg]
 
     # Application Settings
@@ -496,6 +513,17 @@ class Settings(AppConfigAwareSettings):
             enable_auth=self.api.enable_auth,
             enable_cors=self.api.enable_cors,
             enable_docs=self.api.enable_docs,
+        )
+
+    @property
+    def foundry_agent_options(self) -> FoundryAgentOptions:
+        """Create FoundryAgentOptions from nested settings."""
+        return FoundryAgentOptions(
+            enabled=self.foundry_agent.agent_enabled,
+            project_endpoint=self.foundry_agent.project_endpoint,
+            agent_name=self.foundry_agent.agent_name,
+            model=self.foundry_agent.model,
+            timeout_seconds=self.foundry_agent.agent_timeout_seconds,
         )
 
 
