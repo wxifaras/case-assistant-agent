@@ -249,6 +249,60 @@ class PIIDetectionSettings(AppConfigAwareSettings):
     min_confidence: float = Field(default=0.75, description="Confidence threshold (0-1)")
 
 
+class SharePointSettings(AppConfigAwareSettings):
+    """Microsoft Graph / SharePoint connector settings.
+
+    Auth uses ``DefaultAzureCredential`` against the Microsoft Graph scope.
+    The managed identity (or service principal) must have the Graph
+    application permissions ``Sites.Read.All`` and ``Files.Read.All`` granted
+    with admin consent.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="SHAREPOINT_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    graph_base_url: str = Field(
+        default="https://graph.microsoft.com/v1.0",
+        description="Microsoft Graph base URL",
+    )
+    graph_scope: str = Field(
+        default="https://graph.microsoft.com/.default",
+        description="OAuth scope for Graph token acquisition",
+    )
+    site_hostname: str | None = Field(
+        default=None,
+        description="Optional default SharePoint site hostname (for example: contoso.sharepoint.com)",
+    )
+    site_path: str | None = Field(
+        default=None,
+        description="Optional default SharePoint site path (for example: /sites/MySite)",
+    )
+    library_name: str | None = Field(
+        default=None,
+        description="Optional default document library display name (for example: Documents)",
+    )
+    default_blob_container: str | None = Field(
+        default=None,
+        description="Optional default destination blob container (falls back to BLOBSTORAGE_CONTAINER_NAME)",
+    )
+    max_files_per_run: int = Field(
+        default=500,
+        ge=1,
+        description="Hard cap on number of files processed per sync request",
+    )
+    request_timeout_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        description="Per-Graph-request timeout in seconds",
+    )
+    download_chunk_size_bytes: int = Field(
+        default=1024 * 1024,
+        ge=64 * 1024,
+        description="Chunk size for streamed SharePoint download/upload transfer",
+    )
+
+
 class APISettings(AppConfigAwareSettings):
     """API server settings."""
 
@@ -286,6 +340,7 @@ class Settings(AppConfigAwareSettings):
     app_insights: ApplicationInsightsSettings = Field(default_factory=lambda: ApplicationInsightsSettings())  # type: ignore[call-arg]
     workflow: WorkflowSettings = Field(default_factory=lambda: WorkflowSettings())  # type: ignore[call-arg]
     pii_detection: PIIDetectionSettings = Field(default_factory=lambda: PIIDetectionSettings())  # type: ignore[call-arg]
+    sharepoint: SharePointSettings = Field(default_factory=lambda: SharePointSettings())  # type: ignore[call-arg]
 
     # Application Settings
     environment: str = Field(default="development", description="Environment: development, staging, production")

@@ -85,6 +85,7 @@ from app.ingestion.data_source_service import DataSourceService, IDataSourceServ
 from app.ingestion.indexer_service import IIndexerService, IndexerService
 from app.ingestion.search_index_service import ISearchIndexService, SearchIndexService
 from app.ingestion.search_pipeline_orchestrator import ISearchPipelineOrchestrator, SearchPipelineOrchestrator
+from app.ingestion.sharepoint_sync_service import ISharePointSyncService, SharePointSyncService
 from app.ingestion.skillset_service import ISkillsetService, SkillsetService
 from app.models import (
     AIServicesOptions,
@@ -100,6 +101,7 @@ from app.models import (
     WorkflowOptions,
 )
 from app.repositories.cosmos_repository import CosmosRepository
+from app.services.blob_storage_service import BlobStorageService
 from app.services.chat_history_service import ChatHistoryService, IChatHistoryService
 from app.services.chat_service import ChatService, IChatService
 from app.services.pii_detection_service import IPIIDetectionService, PIIDetectionService
@@ -397,4 +399,16 @@ class Container(containers.DeclarativeContainer):
         workflow=agentic_rag_workflow,
         pii_detection_service=pii_detection_service,
         pii_detection_options=pii_detection_options,
+    )
+
+    blob_storage_service: providers.Singleton[BlobStorageService] = providers.Singleton(
+        BlobStorageService,
+        settings=config,
+    )
+
+    sharepoint_sync_service: providers.Singleton[ISharePointSyncService] = providers.Singleton(
+        SharePointSyncService,
+        settings=config,
+        blob_service=blob_storage_service,
+        logger=logger,
     )
