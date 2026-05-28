@@ -10,6 +10,9 @@ class SharePointSyncRequest(BaseModel):
     ``/sites/{hostname}:{site-path}:`` resolution) and either ``library_name``
     (drive display name) or ``drive_id`` directly. Optional ``folder_path``
     scopes the copy to a sub-folder; otherwise the drive root is used.
+
+    When omitted, ``site_hostname``, ``site_path``, and ``library_name`` can
+    fall back to configured SharePoint defaults where available.
     """
 
     site_hostname: str | None = Field(
