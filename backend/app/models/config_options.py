@@ -215,6 +215,23 @@ class AzureAIFoundryOptions(BaseModel):
     }
 
 
+class FoundryAgentOptions(BaseModel):
+    """Configuration for runtime invocation of a Foundry prompt agent."""
+
+    enabled: bool = Field(default=False, description="Enable Foundry prompt-agent invocation path")
+    project_endpoint: str | None = Field(
+        default=None,
+        description="Foundry project endpoint URL (recommended format: https://<account>.services.ai.azure.com/api/projects/<project>)",
+    )
+    agent_name: str | None = Field(default=None, description="Foundry prompt-agent name")
+    model: str | None = Field(default=None, description="Model deployment name used by the prompt agent")
+    timeout_seconds: int = Field(default=90, gt=0, description="Timeout in seconds for a Foundry prompt-agent run")
+
+    model_config = {
+        "str_strip_whitespace": True,
+    }
+
+
 class CosmosDBOptions(BaseModel):
     """Configuration for Azure Cosmos DB for conversation history storage."""
 

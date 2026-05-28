@@ -1045,6 +1045,84 @@ def setup_key_vault(
         print(_c(CYAN, "  pointing to each secret. The SDK resolves them automatically at startup."))
 
 
+def setup_sharepoint_access(
+    site_hostname: str,
+    site_path: str,
+    library_name: Optional[str] = None,
+) -> None:
+    """Validate Microsoft Graph/SharePoint read access for the signed-in local user.
+
+    SharePoint sync uses Graph and user/site permissions rather than Azure ARM RBAC.
+    This check verifies that the current local identity can resolve the target site
+    and (optionally) read the target document library.
+    """
+    print_section(f"SharePoint / Graph Access  [{site_hostname}{site_path}]")
+
+    normalized_site_path = site_path if site_path.startswith("/") else f"/{site_path}"
+    encoded_site_path = normalized_site_path.replace(" ", "%20")
+
+    ok, site = _run_json(
+        [
+            "az",
+            "rest",
+            "--method",
+            "get",
+            "--url",
+            f"https://graph.microsoft.com/v1.0/sites/{site_hostname}:{encoded_site_path}",
+        ]
+    )
+    if not ok or not isinstance(site, dict):
+        print_warning("Could not resolve SharePoint site via Microsoft Graph.")
+        if isinstance(site, str) and site:
+            print_detail(site)
+        print_detail("Ensure your local account has access to the SharePoint site and can call Graph.")
+        print_detail("If running with an app identity, grant admin-consented Graph app permissions:")
+        print_detail("- Sites.Read.All")
+        print_detail("- Files.Read.All")
+        return
+
+    site_id = site.get("id", "")
+    web_url = site.get("webUrl", "")
+    print_success("SharePoint site is accessible through Graph")
+    if site_id:
+        print_detail(f"Site ID: {site_id}")
+    if web_url:
+        print_detail(f"Web URL: {web_url}")
+
+    if not library_name:
+        print_step("Library check skipped (no --sharepoint-library-name provided)")
+        return
+
+    ok, drives = _run_json(
+        [
+            "az",
+            "rest",
+            "--method",
+            "get",
+            "--url",
+            f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives",
+        ]
+    )
+    if not ok or not isinstance(drives, dict):
+        print_warning("Could not enumerate site drives (document libraries).")
+        if isinstance(drives, str) and drives:
+            print_detail(drives)
+        return
+
+    entries = drives.get("value", [])
+    if not isinstance(entries, list):
+        entries = []
+
+    match = next((d for d in entries if (d.get("name") or "").lower() == library_name.lower()), None)
+    if match:
+        print_success(f"Library '{library_name}' is accessible")
+    else:
+        print_warning(f"Library '{library_name}' was not found or is not accessible for this account.")
+        if entries:
+            visible = ", ".join(sorted([(d.get("name") or "<unnamed>") for d in entries]))
+            print_detail(f"Visible libraries: {visible}")
+
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
@@ -1120,6 +1198,21 @@ def build_parser() -> argparse.ArgumentParser:
         "Assigns 'Log Analytics Reader' for trace queries and cloud trace evaluation.",
     )
     parser.add_argument(
+        "--sharepoint-site-hostname",
+        metavar="HOSTNAME",
+        help="SharePoint hostname for Graph validation (for example: contoso.sharepoint.com).",
+    )
+    parser.add_argument(
+        "--sharepoint-site-path",
+        metavar="SITE_PATH",
+        help="SharePoint site server-relative path for Graph validation (for example: /sites/MySite).",
+    )
+    parser.add_argument(
+        "--sharepoint-library-name",
+        metavar="LIBRARY_NAME",
+        help="Optional SharePoint document library display name to validate (for example: Documents).",
+    )
+    parser.add_argument(
         "--principal-id",
         metavar="OBJECT_ID",
         help="Object (principal) ID of a managed identity / service principal to assign roles to. "
@@ -1191,6 +1284,16 @@ def main() -> None:
     )
     key_vault = _prompt_if_missing(args.key_vault, "Key Vault name")
     app_insights = _prompt_if_missing(args.app_insights, "Application Insights component name")
+    sharepoint_site_hostname = _prompt_if_missing(
+        args.sharepoint_site_hostname, "SharePoint site hostname (for Graph access validation)"
+    )
+    sharepoint_site_path = _prompt_if_missing(
+        args.sharepoint_site_path, "SharePoint site path (for Graph access validation, e.g. /sites/MySite)"
+    )
+    sharepoint_library_name = _prompt_if_missing(
+        args.sharepoint_library_name,
+        "SharePoint library name (optional Graph validation, e.g. Documents)",
+    )
 
     # Assign roles
     if cosmos_account:
@@ -1248,6 +1351,16 @@ def main() -> None:
         setup_app_insights(resource_group, app_insights, principal_id, assignee_is_object_id)
     else:
         print_skip("Application Insights")
+
+    # SharePoint/Graph access check applies to local user workflow only.
+    # When --principal-id is provided, the target identity may not be interactive,
+    # so Graph validation of user/library access is skipped.
+    if sharepoint_site_hostname and sharepoint_site_path and not args.principal_id:
+        setup_sharepoint_access(sharepoint_site_hostname, sharepoint_site_path, sharepoint_library_name)
+    elif not sharepoint_site_hostname and not sharepoint_site_path:
+        print_skip("SharePoint / Graph Access")
+    elif not args.principal_id:
+        print_skip("SharePoint / Graph Access (both hostname and site path are required)")
 
     print_summary(args)
 

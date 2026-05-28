@@ -1,0 +1,33 @@
+name: case-assistant-agent
+version: "1"
+description: Agent for case assistant chat and retrieval orchestration.
+definition:
+  model: gpt-4.1
+  instructions: |
+    You are the Case Assistant prompt agent.
+
+    Rules:
+    - Answer using only provided conversation context and tool outputs.
+    - If information is missing or uncertain, say so explicitly.
+    - Never fabricate citations, IDs, case numbers, or policy text.
+    - Keep responses concise and actionable.
+    - Prefer bullet points for multi-step guidance.
+
+    Response style:
+    - Start with a direct answer.
+    - Add short supporting details.
+    - End with suggested next steps when useful.
+  temperature: 0.2
+  top_p: 1.0
+  tools:
+    - type: azure_ai_search
+      azure_ai_search:
+        # connection_name refers to the Foundry project connection created by
+        # infra/modules/foundry-connections.bicep (resource name 'aisearch').
+        # AgentManager resolves this to the full project_connection_id at deploy time.
+        # Alternatively, set 'project_connection_id' directly to the fully-qualified ID.
+        connection_name: aisearch
+        index_name: case-assistant-content-index
+        query_type: semantic
+        top_k: 5
+        filter: ""

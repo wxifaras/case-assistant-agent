@@ -30,7 +30,8 @@ from agent_framework import Message, WorkflowEvent
 from app.api.schemas.chat import ChatHistoryMessage, QueryResponse
 from app.core.logger import Logger
 from app.models.chat import AgenticRAGState
-from app.models.config_options import PIIDetectionOptions, WorkflowOptions
+from app.models.config_options import FoundryAgentOptions, PIIDetectionOptions, WorkflowOptions
+from app.services.foundry_service import IFoundryService
 from app.services.pii_detection_service import IPIIDetectionService
 from app.utils.citation_tracker import CitationTracker
 from app.workflows.core import AgenticRAGWorkflow
@@ -113,6 +114,8 @@ class ChatService(IChatService):
         workflow_options: WorkflowOptions,
         chat_history_service=None,
         workflow: AgenticRAGWorkflow | None = None,
+        foundry_service: IFoundryService | None = None,
+        foundry_agent_options: FoundryAgentOptions | None = None,
         citation_tracker: CitationTracker | None = None,
         pii_detection_service: IPIIDetectionService | None = None,
         pii_detection_options: PIIDetectionOptions | None = None,
@@ -129,6 +132,8 @@ class ChatService(IChatService):
         self._workflow_options: WorkflowOptions = workflow_options
         self._chat_history_service = chat_history_service
         self._workflow_builder = workflow
+        self._foundry_service = foundry_service
+        self._foundry_agent_options = foundry_agent_options or FoundryAgentOptions()
 
         if workflow is None:
             raise ValueError("ChatService requires an AgenticRAGWorkflow builder.")
@@ -149,6 +154,59 @@ class ChatService(IChatService):
             )
         else:
             self.logger.info("ChatService PII guard disabled (service or options not provided / disabled)")
+
+    async def _try_foundry_prompt_agent(
+        self,
+        *,
+        query: str,
+        session_id: str,
+        user_id: str | None,
+    ) -> QueryResponse | None:
+        """Invoke Foundry prompt-agent when enabled; return None to continue normal workflow."""
+        opts = self._foundry_agent_options
+        if not (opts.enabled and self._foundry_service and opts.agent_name):
+            return None
+
+        try:
+            self.logger.info("Executing Foundry prompt-agent path")
+            result = await self._foundry_service.query_async(agent_name=opts.agent_name, query=query)
+            answer = str(result.get("answer") or "")
+
+            response = QueryResponse(
+                answer=answer,
+                citations=result.get("citations") or [],
+                document_count=int(result.get("document_count") or 0),
+                session_id=session_id,
+                thought_process=[
+                    {
+                        "step": "foundry_prompt_agent",
+                        "details": result.get("metadata") or {},
+                        "attempt": 1,
+                    }
+                ],
+                search_history=[],
+                decisions=["finalize"],
+                attempts=1,
+            )
+
+            if self._chat_history_service and user_id:
+                await self._chat_history_service.add_user_chat_message(
+                    session_id=session_id,
+                    user_id=user_id,
+                    role="user",
+                    content=query,
+                )
+                await self._chat_history_service.add_user_chat_message(
+                    session_id=session_id,
+                    user_id=user_id,
+                    role="assistant",
+                    content=response.answer,
+                    metadata={"mode": "foundry_prompt_agent"},
+                )
+            return response
+        except Exception as e:
+            self.logger.warning(f"Foundry prompt-agent path failed; falling back to workflow: {e}")
+            return None
 
     # ------------------------------------------------------------------
     # Internal: PII guard
@@ -299,6 +357,12 @@ class ChatService(IChatService):
                 except Exception as e:
                     self.logger.error(f"Failed to persist PII-blocked turn: {e}")
             return pii_response
+
+        foundry_response = await self._try_foundry_prompt_agent(
+            query=query, session_id=session_id, user_id=user_id
+        )
+        if foundry_response is not None:
+            return foundry_response
 
         conv_history = None
         if self._chat_history_service and user_id:
