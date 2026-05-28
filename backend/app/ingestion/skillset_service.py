@@ -281,6 +281,30 @@ class SkillsetService(ISkillsetService):
                         name="document_title",
                         source="/document/document_title",
                     ),
+                    InputFieldMappingEntry(
+                        name="sp_site_name",
+                        source="/document/sp_site_name",
+                    ),
+                    InputFieldMappingEntry(
+                        name="sp_library_name",
+                        source="/document/sp_library_name",
+                    ),
+                    InputFieldMappingEntry(
+                        name="sp_last_modified_utc",
+                        source="/document/sp_last_modified_utc",
+                    ),
+                    InputFieldMappingEntry(
+                        name="sp_filename",
+                        source="/document/sp_filename",
+                    ),
+                    InputFieldMappingEntry(
+                        name="sp_file_path",
+                        source="/document/sp_file_path",
+                    ),
+                    InputFieldMappingEntry(
+                        name="sp_file_size_bytes",
+                        source="/document/sp_file_size_bytes",
+                    ),
                 ],
             ),
             SearchIndexerIndexProjectionSelector(
@@ -307,6 +331,30 @@ class SkillsetService(ISkillsetService):
                     InputFieldMappingEntry(
                         name="location_metadata",
                         source="/document/normalized_images/*/locationMetadata",
+                    ),
+                    InputFieldMappingEntry(
+                        name="sp_site_name",
+                        source="/document/sp_site_name",
+                    ),
+                    InputFieldMappingEntry(
+                        name="sp_library_name",
+                        source="/document/sp_library_name",
+                    ),
+                    InputFieldMappingEntry(
+                        name="sp_last_modified_utc",
+                        source="/document/sp_last_modified_utc",
+                    ),
+                    InputFieldMappingEntry(
+                        name="sp_filename",
+                        source="/document/sp_filename",
+                    ),
+                    InputFieldMappingEntry(
+                        name="sp_file_path",
+                        source="/document/sp_file_path",
+                    ),
+                    InputFieldMappingEntry(
+                        name="sp_file_size_bytes",
+                        source="/document/sp_file_size_bytes",
                     ),
                 ],
             ),
@@ -475,6 +523,12 @@ class SkillsetService(ISkillsetService):
                     {"name": "content_text", "source": "/document/text_sections/*/content"},
                     {"name": "location_metadata", "source": "/document/text_sections/*/locationMetadata"},
                     {"name": "document_title", "source": "/document/document_title"},
+                    {"name": "sp_site_name", "source": "/document/sp_site_name"},
+                    {"name": "sp_library_name", "source": "/document/sp_library_name"},
+                    {"name": "sp_last_modified_utc", "source": "/document/sp_last_modified_utc"},
+                    {"name": "sp_filename", "source": "/document/sp_filename"},
+                    {"name": "sp_file_path", "source": "/document/sp_file_path"},
+                    {"name": "sp_file_size_bytes", "source": "/document/sp_file_size_bytes"},
                 ],
             },
             {
@@ -487,6 +541,12 @@ class SkillsetService(ISkillsetService):
                     {"name": "content_path", "source": "/document/normalized_images/*/new_normalized_images/imagePath"},
                     {"name": "document_title", "source": "/document/document_title"},
                     {"name": "location_metadata", "source": "/document/normalized_images/*/locationMetadata"},
+                    {"name": "sp_site_name", "source": "/document/sp_site_name"},
+                    {"name": "sp_library_name", "source": "/document/sp_library_name"},
+                    {"name": "sp_last_modified_utc", "source": "/document/sp_last_modified_utc"},
+                    {"name": "sp_filename", "source": "/document/sp_filename"},
+                    {"name": "sp_file_path", "source": "/document/sp_file_path"},
+                    {"name": "sp_file_size_bytes", "source": "/document/sp_file_size_bytes"},
                 ],
             },
         ]
@@ -605,6 +665,12 @@ class SkillsetService(ISkillsetService):
                         {"name": "content_embedding", "source": "/document/chunks/*/text_vector"},
                         {"name": "content_text", "source": "/document/chunks/*"},
                         {"name": "document_title", "source": "/document/document_title"},
+                        {"name": "sp_site_name", "source": "/document/sp_site_name"},
+                        {"name": "sp_library_name", "source": "/document/sp_library_name"},
+                        {"name": "sp_last_modified_utc", "source": "/document/sp_last_modified_utc"},
+                        {"name": "sp_filename", "source": "/document/sp_filename"},
+                        {"name": "sp_file_path", "source": "/document/sp_file_path"},
+                        {"name": "sp_file_size_bytes", "source": "/document/sp_file_size_bytes"},
                     ],
                 },
             ],
@@ -668,3 +734,4 @@ class SkillsetService(ISkillsetService):
             index_name,
             "Skillset for JSON content \u2014 chunks and embeds text for vector search",
         )
+
