@@ -50,6 +50,8 @@ internal static class Program
 		{
 			Console.WriteLine("- verify_only: true");
 		}
+		Console.WriteLine($"- assignment_method: {(options.UsePrivilegedAssignment ? "Privileged" : "Standard")}");
+		Console.WriteLine($"- auth_mode: {options.GetAuthModeLabel()}");
 
 		var blobCredential = new DefaultAzureCredential();
 		var blobClient = new BlobClient(new Uri($"{options.AccountUrl.TrimEnd('/')}/{options.Container}/{options.BlobName}"), blobCredential);
@@ -89,12 +91,14 @@ internal static class Program
 				identityValue = $"{options.MipAppId}@{options.MipTenantId}";
 			}
 			var identity = new Identity(identityValue);
+			var mipDataPath = ResolveMipDataPath();
+			Console.WriteLine($"- mip_data_path: {mipDataPath}");
 
 			MIP.Initialize(MipComponent.File);
 
 			using var mipContext = MIP.CreateMipContext(new MipConfiguration(
 				appInfo,
-				"mip_data",
+				mipDataPath,
 				Microsoft.InformationProtection.LogLevel.Trace,
 				false,
 				CacheStorageType.OnDiskEncrypted));
@@ -146,7 +150,9 @@ internal static class Program
 
 			var labelingOptions = new LabelingOptions
 			{
-				AssignmentMethod = AssignmentMethod.Standard,
+				AssignmentMethod = options.UsePrivilegedAssignment
+					? AssignmentMethod.Privileged
+					: AssignmentMethod.Standard,
 			};
 
 			try
@@ -164,6 +170,13 @@ internal static class Program
 				labelingOptions.IsDowngradeJustified = true;
 				labelingOptions.JustificationMessage = options.Justification;
 				handler.SetLabel(targetLabel, labelingOptions, new ProtectionSettings());
+			}
+			catch (Exception ex) when (!options.UsePrivilegedAssignment
+				&& ex.Message.Contains("privileged", StringComparison.OrdinalIgnoreCase))
+			{
+				throw new InvalidOperationException(
+					"Policy requires privileged downgrade. Re-run with --use-privileged-assignment and --justification '<reason>' if required.",
+					ex);
 			}
 
 			if (!handler.IsModified())
@@ -241,6 +254,34 @@ internal static class Program
 		using var sha = SHA256.Create();
 		var hash = sha.ComputeHash(file);
 		return BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
+	}
+
+	private static string ResolveMipDataPath()
+	{
+		var configuredPath = Environment.GetEnvironmentVariable("MIP_DATA_DIR");
+		if (!string.IsNullOrWhiteSpace(configuredPath))
+		{
+			var fullConfiguredPath = Path.GetFullPath(configuredPath);
+			Directory.CreateDirectory(fullConfiguredPath);
+			return fullConfiguredPath;
+		}
+
+		var current = new DirectoryInfo(AppContext.BaseDirectory);
+		while (current != null)
+		{
+			if (File.Exists(Path.Combine(current.FullName, "MipRelabelTest.csproj")))
+			{
+				var projectLocalPath = Path.Combine(current.FullName, "mip_data");
+				Directory.CreateDirectory(projectLocalPath);
+				return projectLocalPath;
+			}
+
+			current = current.Parent;
+		}
+
+		var fallbackPath = Path.Combine(AppContext.BaseDirectory, "mip_data");
+		Directory.CreateDirectory(fallbackPath);
+		return fallbackPath;
 	}
 }
 
@@ -391,6 +432,38 @@ internal sealed class CliOptions
 	public string CertThumbprint { get; private set; }
 	public bool UseDefaultAzureCredential { get; private set; }
 	public string ManagedIdentityClientId { get; private set; }
+	public bool UsePrivilegedAssignment { get; private set; }
+	public bool UseClientCredentials { get; private set; }
+
+	public string GetAuthModeLabel()
+	{
+		if (UseDefaultAzureCredential)
+		{
+			return "DefaultAzureCredential";
+		}
+
+		if (UseClientCredentials && UseCertificateAuth)
+		{
+			return "ClientCredentialsCertificate";
+		}
+
+		if (UseClientCredentials)
+		{
+			return "ClientCredentialsSecret";
+		}
+
+		if (UseCertificateAuth)
+		{
+			return "Certificate";
+		}
+
+		if (!string.IsNullOrWhiteSpace(MipClientSecret))
+		{
+			return "ClientCredentialsSecret";
+		}
+
+		return "DelegatedInteractive";
+	}
 
 	public static CliOptions Parse(string[] args)
 	{
@@ -442,11 +515,27 @@ internal sealed class CliOptions
 			MipUserUpn = Arg("mip-user-upn", "MIP_USER_UPN", required: false),
 			CertThumbprint = Arg("mip-cert-thumbprint", "MIP_CERT_THUMBPRINT", required: false),
 			UseCertificateAuth = Flag("use-cert-auth") || string.Equals(Environment.GetEnvironmentVariable("MIP_USE_CERT_AUTH"), "true", StringComparison.OrdinalIgnoreCase),
+			UseClientCredentials = Flag("use-client-credentials") || string.Equals(Environment.GetEnvironmentVariable("MIP_USE_CLIENT_CREDENTIALS"), "true", StringComparison.OrdinalIgnoreCase),
 			UseDefaultAzureCredential = Flag("use-default-azure-credential") || string.Equals(Environment.GetEnvironmentVariable("MIP_USE_DEFAULT_AZURE_CREDENTIAL"), "true", StringComparison.OrdinalIgnoreCase),
 			ManagedIdentityClientId = Arg("managed-identity-client-id", "MIP_MANAGED_IDENTITY_CLIENT_ID", required: false),
+			UsePrivilegedAssignment = Flag("use-privileged-assignment") || string.Equals(Environment.GetEnvironmentVariable("MIP_USE_PRIVILEGED_ASSIGNMENT"), "true", StringComparison.OrdinalIgnoreCase),
 		};
 
-		var isDelegatedFlow = !options.UseDefaultAzureCredential && !options.UseCertificateAuth && string.IsNullOrWhiteSpace(options.MipClientSecret);
+		if (options.UseClientCredentials && options.UseDefaultAzureCredential)
+		{
+			throw new ArgumentException("Do not combine --use-client-credentials with --use-default-azure-credential.");
+		}
+
+		if (options.UseClientCredentials && !options.UseCertificateAuth && string.IsNullOrWhiteSpace(options.MipClientSecret))
+		{
+			throw new ArgumentException(
+				"Client credentials mode requires --mip-client-secret (or MIP_CLIENT_SECRET) or --use-cert-auth with --mip-cert-thumbprint.");
+		}
+
+		var isDelegatedFlow = !options.UseDefaultAzureCredential
+			&& !options.UseClientCredentials
+			&& !options.UseCertificateAuth
+			&& string.IsNullOrWhiteSpace(options.MipClientSecret);
 		if (isDelegatedFlow && string.IsNullOrWhiteSpace(options.MipUserUpn))
 		{
 			throw new ArgumentException("Delegated flow requires --mip-user-upn (or MIP_USER_UPN) to set the MIP engine identity.");

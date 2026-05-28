@@ -12,6 +12,7 @@ Case Assistant Agent is an Azure-based, agentic RAG application with:
 * A Teams bot frontend for Microsoft 365 integration scenarios
 * An Azure AI Search ingestion pipeline that processes blob content into a vector-enabled index
 * Cosmos DB chat history storage with hierarchical partition keys
+* Optional Azure AI Foundry prompt-agent deployment and runtime invocation path
 
 ## Repository Structure
 
@@ -157,6 +158,50 @@ Core flow:
 * Search index with vector and semantic configuration
 * Skillsets for extraction, chunking, embeddings, and multimodal enrichment
 * Indexers that project enriched content into the search index
+
+## Foundry Prompt Agent
+
+The repository includes a Foundry prompt-agent definition and deployment script:
+
+* Agent YAML: `backend/app/agents/case_assistant_agent.yaml`
+* Deployment CLI: `scripts/deploy_agent.py`
+
+Set these environment variables in `backend/.env` (or your shell) before deploying:
+
+* `FOUNDRY_PROJECT_ENDPOINT` (for example `https://<account>.services.ai.azure.com/api/projects/<project>`)
+* `FOUNDRY_MODEL` (model deployment name used by the prompt agent)
+
+To enable runtime invocation from the backend, also set:
+
+* `FOUNDRY_AGENT_ENABLED=true`
+* `FOUNDRY_AGENT_NAME=<agent-name>`
+* Optional: `FOUNDRY_AGENT_TIMEOUT_SECONDS=90`
+
+Deploy or update the prompt agent:
+
+```powershell
+backend/.venv/Scripts/python scripts/deploy_agent.py --endpoint $env:FOUNDRY_PROJECT_ENDPOINT deploy
+```
+
+Deploy with explicit model override:
+
+```powershell
+backend/.venv/Scripts/python scripts/deploy_agent.py --endpoint $env:FOUNDRY_PROJECT_ENDPOINT deploy --model <model-deployment-name>
+```
+
+List agents in the project:
+
+```powershell
+backend/.venv/Scripts/python scripts/deploy_agent.py --endpoint $env:FOUNDRY_PROJECT_ENDPOINT list
+```
+
+Delete an agent by name:
+
+```powershell
+backend/.venv/Scripts/python scripts/deploy_agent.py --endpoint $env:FOUNDRY_PROJECT_ENDPOINT delete <agent-name>
+```
+
+When `FOUNDRY_PROJECT_ENDPOINT` is configured, API startup also attempts to configure Foundry tracing instrumentation.
 
 ## Configuration Model
 
