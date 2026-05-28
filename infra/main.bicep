@@ -198,6 +198,20 @@ module foundryConnections 'modules/foundry-connections.bicep' = {
   }
 }
 
+// Grant the Foundry project's managed identity the Search roles required for
+// the Azure AI Search agent tool to read indexes and query documents.
+// Without these, the Foundry portal returns:
+//   "Access denied. Check your permissions or managed identity access to the
+//    search service."
+module searchRbacForFoundry 'modules/search-rbac.bicep' = {
+  name: 'search-rbac-foundry-deploy'
+  params: {
+    searchServiceName: search.outputs.name
+    principalId: foundry.outputs.projectPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // ---------- Outputs ----------
 output foundryId string = foundry.outputs.id
 output foundryName string = foundry.outputs.name
