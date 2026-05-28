@@ -4,6 +4,7 @@ Manages the creation and configuration of search indexes, including
 vector search (HNSW + scalar quantization), Azure OpenAI vectorizer
 integration, and semantic search configuration.
 """
+
 from abc import ABC, abstractmethod
 
 from azure.search.documents.indexes.aio import SearchIndexClient
@@ -35,9 +36,7 @@ class ISearchIndexService(ABC):
     """Abstract interface for Azure AI Search index service operations."""
 
     @abstractmethod
-    async def create_search_index_async(
-        self, index_name: str, include_image_processing: bool = True
-    ) -> None:
+    async def create_search_index_async(self, index_name: str, include_image_processing: bool = True) -> None:
         """Create or update a search index with vector and semantic search capabilities.
 
         Args:
@@ -78,9 +77,7 @@ class SearchIndexService(ISearchIndexService):
         self._openai_options: AzureOpenAIOptions = openai_options
         self.logger = logger
 
-    async def create_search_index_async(
-        self, index_name: str, include_image_processing: bool = True
-    ) -> None:
+    async def create_search_index_async(self, index_name: str, include_image_processing: bool = True) -> None:
         """Create or update a search index with vector and semantic search capabilities.
 
         The index is configured with:
@@ -188,11 +185,58 @@ class SearchIndexService(ISearchIndexService):
                     )
                 ],
             ),
+            # SharePoint fields for search filtering and ranking
+            SimpleField(
+                name="sp_site_name",
+                type=SearchFieldDataType.String,
+                searchable=True,
+                filterable=True,
+                sortable=False,
+                facetable=False,
+            ),
+            SimpleField(
+                name="sp_library_name",
+                type=SearchFieldDataType.String,
+                searchable=True,
+                filterable=True,
+                sortable=False,
+                facetable=False,
+            ),
+            SimpleField(
+                name="sp_last_modified_utc",
+                type=SearchFieldDataType.String,
+                searchable=False,
+                filterable=True,
+                sortable=True,
+                facetable=False,
+            ),
+            SimpleField(
+                name="sp_filename",
+                type=SearchFieldDataType.String,
+                searchable=True,
+                filterable=True,
+                sortable=True,
+                facetable=False,
+            ),
+            SimpleField(
+                name="sp_file_path",
+                type=SearchFieldDataType.String,
+                searchable=True,
+                filterable=True,
+                sortable=False,
+                facetable=False,
+            ),
+            SimpleField(
+                name="sp_file_size_bytes",
+                type=SearchFieldDataType.String,
+                searchable=False,
+                filterable=True,
+                sortable=True,
+                facetable=False,
+            ),
         ]
 
-    def _create_vector_search_config(
-        self, include_image_processing: bool = True
-    ) -> VectorSearch:
+    def _create_vector_search_config(self, include_image_processing: bool = True) -> VectorSearch:
         """Create vector search configuration with HNSW algorithm and compression.
 
         Args:
@@ -224,9 +268,7 @@ class SearchIndexService(ISearchIndexService):
         )
 
         # Scalar quantization compression
-        scalar_compression = ScalarQuantizationCompression(
-            compression_name="scalar-quant-8bit"
-        )
+        scalar_compression = ScalarQuantizationCompression(compression_name="scalar-quant-8bit")
 
         # Azure OpenAI vectorizer
         vectorizer = AzureOpenAIVectorizer(
@@ -269,9 +311,7 @@ class SearchIndexService(ISearchIndexService):
             name="semanticconfig",
             prioritized_fields=SemanticPrioritizedFields(
                 title_field=SemanticField(field_name="document_title"),
-                content_fields=[
-                    SemanticField(field_name="content_text")
-                ],
+                content_fields=[SemanticField(field_name="content_text")],
                 keywords_fields=[],
             ),
         )

@@ -76,9 +76,7 @@ class DataSourceService(IDataSourceService):
             Exception: If data source creation fails.
             ValueError: If neither resource_id nor connection_string is configured.
         """
-        container: SearchIndexerDataContainer = SearchIndexerDataContainer(
-            name=self._blob_options.container_name
-        )
+        container: SearchIndexerDataContainer = SearchIndexerDataContainer(name=self._blob_options.container_name)
 
         # Determine which authentication method to use
         if self._blob_options.resource_id:
@@ -90,9 +88,7 @@ class DataSourceService(IDataSourceService):
             connection_string = self._blob_options.connection_string
             self.logger.info("Using connection string authentication for blob data source")
         else:
-            raise ValueError(
-                "Either BlobStorage__ResourceId or BlobStorageConnection must be configured"
-            )
+            raise ValueError("Either BlobStorage__ResourceId or BlobStorageConnection must be configured")
 
         data_source: SearchIndexerDataSourceConnection = SearchIndexerDataSourceConnection(
             name=data_source_name,
@@ -104,7 +100,7 @@ class DataSourceService(IDataSourceService):
                 high_water_mark_column_name="metadata_storage_last_modified"
             ),
             data_deletion_detection_policy=SoftDeleteColumnDeletionDetectionPolicy(
-                soft_delete_column_name="metadata_storage_is_deleted",
+                soft_delete_column_name="metadata_storage_file_deleted",
                 soft_delete_marker_value="true",
             ),
         )

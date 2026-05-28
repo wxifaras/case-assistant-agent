@@ -97,19 +97,26 @@ class SharePointSyncService:
         library_name = request.library_name or self._settings.sharepoint.library_name
         container = self._resolve_container(request)
         cap = self._resolve_cap(request)
-        prefix = self._normalize_prefix(request.blob_prefix)
-
-        self._logger.info(
-            f"SharePoint sync starting: site={site_hostname}{site_path} "
-            f"library={library_name or request.drive_id} folder={request.folder_path or '/'} "
-            f"container={container} dry_run={request.dry_run} cap={cap}"
-        )
 
         token = await self._acquire_graph_token()
         headers = {"Authorization": f"Bearer {token}"}
 
         drive_id = await self._resolve_drive_id(headers, request, site_hostname, site_path, library_name)
         folder_item_id = await self._resolve_folder_item_id(headers, drive_id, request.folder_path)
+
+        # Build base site metadata for all files
+        site_name = site_path.rstrip("/").rsplit("/", 1)[-1]
+        resolved_library = library_name or request.drive_id or "documents"
+
+        # Blob prefix: {outer_prefix}{site_name}/{library_name}/ ensures no cross-site collisions
+        outer_prefix = self._normalize_prefix(request.blob_prefix)
+        prefix = f"{outer_prefix}{site_name}/{resolved_library}/"
+
+        self._logger.info(
+            f"SharePoint sync starting: site={site_hostname}{site_path} "
+            f"library={resolved_library} folder={request.folder_path or '/'} "
+            f"container={container} prefix={prefix} dry_run={request.dry_run} cap={cap}"
+        )
 
         items: list[SharePointSyncItemResult] = []
         copied = skipped = failed = discovered = 0
@@ -137,14 +144,21 @@ class SharePointSyncService:
                 continue
 
             try:
+                # Build SharePoint metadata for blob annotation
+                metadata = self._build_sharepoint_metadata(
+                    site_name=site_name,
+                    library_name=resolved_library,
+                    file_entry=file_entry,
+                )
+
                 download_url = file_entry.get("@microsoft.graph.downloadUrl")
                 if download_url:
-                    await self._copy_download_url_to_blob(download_url, container, blob_name)
+                    await self._copy_download_url_to_blob(download_url, container, blob_name, metadata)
                 else:
                     item_id = file_entry.get("id")
                     if not item_id:
                         raise RuntimeError("missing both @microsoft.graph.downloadUrl and driveItem id")
-                    await self._copy_drive_item_to_blob(headers, drive_id, item_id, container, blob_name)
+                    await self._copy_drive_item_to_blob(headers, drive_id, item_id, container, blob_name, metadata)
 
                 copied += 1
                 items.append(
@@ -296,7 +310,7 @@ class SharePointSyncService:
             current_id, rel_prefix = stack.pop()
             url: str | None = (
                 f"{base}/drives/{drive_id}/items/{current_id}/children"
-                "?$select=id,name,size,folder,file,parentReference,@microsoft.graph.downloadUrl"
+                "?$select=id,name,size,eTag,lastModifiedDateTime,folder,file,parentReference,@microsoft.graph.downloadUrl"
             )
             while url:
                 data = await self._graph_get(url, headers)
@@ -323,6 +337,39 @@ class SharePointSyncService:
             raise RuntimeError(f"Graph GET {url} failed with {response.status_code}: {response.text[:500]}")
         return response.json()
 
+    def _build_sharepoint_metadata(
+        self,
+        site_name: str,
+        library_name: str,
+        file_entry: dict[str, Any],
+    ) -> dict[str, str]:
+        """Build SharePoint metadata dict for blob annotation.
+
+        Blob metadata carries two categories:
+        * Search index fields (sp_site_name, sp_library_name, sp_last_modified_utc,
+          sp_filename, sp_file_path, sp_file_size_bytes) — projected into Azure AI
+          Search for filtering and ranking.
+        * ``metadata_storage_file_deleted`` — watched by the indexer's
+          SoftDeleteColumnDeletionDetectionPolicy; set to ``"true"`` by the
+          reconciliation pass to remove orphaned documents from the index.
+
+        Delta-tracking fields (sp_item_id, sp_etag, sp_site_id, sp_drive_id)
+        are stored in Cosmos DB, not in blob metadata.
+        """
+        file_size = file_entry.get("size")
+        file_size_str = str(file_size) if file_size is not None else "0"
+
+        return {
+            "metadata_storage_file_deleted": "false",
+            # --- search index fields ---
+            "sp_site_name": site_name,
+            "sp_library_name": library_name,
+            "sp_last_modified_utc": file_entry.get("lastModifiedDateTime", ""),
+            "sp_filename": file_entry.get("name", ""),
+            "sp_file_path": file_entry.get("_relative_path", ""),
+            "sp_file_size_bytes": file_size_str,
+        }
+
     async def _download(self, download_url: str) -> bytes:
         client = self._ensure_http()
         response = await client.get(download_url)
@@ -339,8 +386,14 @@ class SharePointSyncService:
             raise RuntimeError(f"Drive item content download failed with {response.status_code}: {response.text[:500]}")
         return response.content
 
-    async def _copy_download_url_to_blob(self, download_url: str, container: str, blob_name: str) -> None:
-        await self._stream_to_blob(download_url, container, blob_name)
+    async def _copy_download_url_to_blob(
+        self,
+        download_url: str,
+        container: str,
+        blob_name: str,
+        metadata: dict[str, str] | None = None,
+    ) -> None:
+        await self._stream_to_blob(download_url, container, blob_name, metadata=metadata)
 
     async def _copy_drive_item_to_blob(
         self,
@@ -349,10 +402,11 @@ class SharePointSyncService:
         item_id: str,
         container: str,
         blob_name: str,
+        metadata: dict[str, str] | None = None,
     ) -> None:
         base = self._settings.sharepoint.graph_base_url
         url = f"{base}/drives/{drive_id}/items/{item_id}/content"
-        await self._stream_to_blob(url, container, blob_name, headers=headers, follow_redirects=True)
+        await self._stream_to_blob(url, container, blob_name, headers=headers, follow_redirects=True, metadata=metadata)
 
     async def _stream_to_blob(
         self,
@@ -362,6 +416,7 @@ class SharePointSyncService:
         *,
         headers: dict[str, str] | None = None,
         follow_redirects: bool = False,
+        metadata: dict[str, str] | None = None,
     ) -> None:
         client = self._ensure_http()
         chunk_size = self._settings.sharepoint.download_chunk_size_bytes
@@ -378,5 +433,6 @@ class SharePointSyncService:
                 blob_name=blob_name,
                 data=response.aiter_bytes(chunk_size=chunk_size),
                 length=total_size,
+                metadata=metadata,
                 overwrite=True,
             )

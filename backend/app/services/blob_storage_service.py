@@ -58,6 +58,7 @@ class BlobStorageService:
         data: bytes,
         *,
         overwrite: bool = True,
+        metadata: dict[str, str] | None = None,
     ) -> str:
         """
         Upload artifact data to blob storage.
@@ -67,6 +68,7 @@ class BlobStorageService:
             blob_name: Blob name (path within container)
             data: Binary data to upload
             overwrite: Whether to overwrite existing blob (default: True)
+            metadata: Optional key-value metadata to attach to blob
 
         Returns:
             Blob URL
@@ -75,7 +77,8 @@ class BlobStorageService:
             >>> url = await blob_service.upload_artifact(
             ...     container="artifacts",
             ...     blob_name="workflow-123/input.jpg",
-            ...     data=image_bytes
+            ...     data=image_bytes,
+            ...     metadata={"source": "sharepoint", "item_id": "123"}
             ... )
         """
         client = self._ensure_client()
@@ -89,7 +92,7 @@ class BlobStorageService:
             pass
 
         blob_client = container_client.get_blob_client(blob_name)
-        await blob_client.upload_blob(data, overwrite=overwrite)
+        await blob_client.upload_blob(data, overwrite=overwrite, metadata=metadata)
 
         return blob_client.url
 
@@ -101,6 +104,7 @@ class BlobStorageService:
         *,
         length: int | None = None,
         overwrite: bool = True,
+        metadata: dict[str, str] | None = None,
     ) -> str:
         """Upload streamed artifact data to blob storage.
 
@@ -110,6 +114,7 @@ class BlobStorageService:
             data: Async iterable yielding bytes chunks.
             length: Optional known total byte length.
             overwrite: Whether to overwrite existing blob (default: True).
+            metadata: Optional key-value metadata to attach to blob.
 
         Returns:
             Blob URL.
@@ -123,7 +128,7 @@ class BlobStorageService:
             pass
 
         blob_client = container_client.get_blob_client(blob_name)
-        await blob_client.upload_blob(data, length=length, overwrite=overwrite)
+        await blob_client.upload_blob(data, length=length, overwrite=overwrite, metadata=metadata)
 
         return blob_client.url
 
