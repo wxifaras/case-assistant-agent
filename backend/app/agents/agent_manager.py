@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, cast
 
-from app.agents.agent_config import CaseAssistantAgentConfig
 from azure.ai.projects.aio import AIProjectClient
-from azure.ai.projects.models import MCPTool, PromptAgentDefinition
+from azure.ai.projects.models import MCPTool, PromptAgentDefinition, Tool
 from azure.core.exceptions import ResourceNotFoundError
 from azure.identity.aio import DefaultAzureCredential
+
+from app.agents.agent_config import CaseAssistantAgentConfig
 
 
 @dataclass(slots=True)
@@ -31,8 +32,8 @@ class AgentManager:
 
     def __init__(self, project_endpoint: str) -> None:
         self._endpoint = project_endpoint
-        self._credential: Optional[DefaultAzureCredential] = None
-        self._client: Optional[AIProjectClient] = None
+        self._credential: DefaultAzureCredential | None = None
+        self._client: AIProjectClient | None = None
 
     def _ensure_client(self) -> AIProjectClient:
         if self._client is None:
@@ -53,11 +54,13 @@ class AgentManager:
         except ResourceNotFoundError:
             return None
 
-    async def ensure_agent(self, config: Optional[dict[str, Any]] = None):
+    async def ensure_agent(self, config: dict[str, Any] | None = None):
         client = self._ensure_client()
         cfg = config or CaseAssistantAgentConfig.get_agent_config()
 
-        tools = [MCPTool(**_normalize_tool(t)) if isinstance(t, dict) else t for t in (cfg.get("tools") or [])]
+        tools: list[Tool] = [
+            cast(Tool, MCPTool(**_normalize_tool(t)) if isinstance(t, dict) else t) for t in (cfg.get("tools") or [])
+        ]
 
         definition = PromptAgentDefinition(
             model=cfg["model"],
