@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 import inspect
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
+
+from azure.ai.projects.aio import AIProjectClient
+from azure.identity.aio import DefaultAzureCredential
 
 from app.core.logger import Logger
 from app.models.config_options import FoundryAgentOptions
-from azure.ai.projects.aio import AIProjectClient
-from azure.identity.aio import DefaultAzureCredential
 
 
 async def _maybe_await(value):
@@ -18,9 +19,6 @@ async def _maybe_await(value):
         return await value
     return value
 
-
-class FoundryService:
-    """Best-effort Prompt Agent invocation wrapper for azure-ai-projects."""
 
 class IFoundryService(ABC):
     """Interface for runtime prompt-agent invocation."""
@@ -39,8 +37,8 @@ class FoundryService(IFoundryService):
         self._logger = logger
         self._endpoint = options.project_endpoint or ""
         self._timeout_seconds = options.timeout_seconds
-        self._credential: Optional[DefaultAzureCredential] = None
-        self._client: Optional[AIProjectClient] = None
+        self._credential: DefaultAzureCredential | None = None
+        self._client: AIProjectClient | None = None
 
     def _ensure_client(self) -> AIProjectClient:
         if not self._endpoint:
@@ -115,7 +113,7 @@ class FoundryService(IFoundryService):
         elif isinstance(messages_obj, list):
             messages = messages_obj
         elif hasattr(messages_obj, "data"):
-            messages = list(getattr(messages_obj, "data") or [])
+            messages = list(messages_obj.data or [])
 
         for msg in reversed(messages):
             if str(getattr(msg, "role", "")).lower() != "assistant":

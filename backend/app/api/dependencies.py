@@ -18,6 +18,7 @@ from app.core.logger import Logger
 from app.core.settings import Settings
 from app.ingestion.indexer_service import IIndexerService
 from app.ingestion.search_pipeline_orchestrator import ISearchPipelineOrchestrator
+from app.ingestion.sharepoint_sync_service import ISharePointSyncService
 from app.services.chat_history_service import IChatHistoryService
 from app.services.chat_service import IChatService
 from app.services.pii_detection_service import IPIIDetectionService
@@ -108,3 +109,12 @@ def get_pii_detection_service(container: Container = Depends(get_container)) -> 
         ``IPIIDetectionService`` implementation wired by the container.
     """
     return container.pii_detection_service()
+
+
+def get_sharepoint_sync_service(container: Container = Depends(get_container)) -> ISharePointSyncService:
+    """Return the SharePoint -> Blob sync service from the DI container.
+
+    Returns:
+        ``ISharePointSyncService`` implementation wired by the container.
+    """
+    return container.sharepoint_sync_service()

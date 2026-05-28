@@ -74,3 +74,52 @@ DELETE {{baseUrl}}/chat/conversations/{{userId}}
 Accept: application/json
 
 ###
+
+### SharePoint sync (dry run using env fallback for site/library)
+POST {{baseUrl}}/pipeline/sync-sharepoint
+Content-Type: application/json
+
+{
+  "dry_run": true,
+  "max_files": 3,
+  "blob_prefix": "sharepoint-api-test"
+}
+
+###
+
+### SharePoint sync COPY (non-dry-run, env fallback)
+### Use a small cap first so you can verify one file was copied.
+POST {{baseUrl}}/pipeline/sync-sharepoint
+Content-Type: application/json
+
+{
+  "dry_run": false,
+  "max_files": 1,
+  "blob_prefix": "sharepoint-live-copy"
+}
+
+###
+
+### SharePoint sync (dry run variant, env fallback)
+POST {{baseUrl}}/pipeline/sync-sharepoint
+Content-Type: application/json
+
+{
+  "dry_run": true,
+  "max_files": 3,
+  "blob_prefix": "sharepoint-api-test-variant"
+}
+
+###
+
+### SharePoint sync COPY (non-dry-run variant, env fallback)
+POST {{baseUrl}}/pipeline/sync-sharepoint
+Content-Type: application/json
+
+{
+  "dry_run": false,
+  "max_files": 1,
+  "blob_prefix": "sharepoint-live-copy-variant"
+}
+
+###

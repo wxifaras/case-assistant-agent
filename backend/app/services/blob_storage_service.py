@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterable
 from datetime import UTC, datetime, timedelta
 
 from azure.identity.aio import DefaultAzureCredential
@@ -89,6 +90,40 @@ class BlobStorageService:
 
         blob_client = container_client.get_blob_client(blob_name)
         await blob_client.upload_blob(data, overwrite=overwrite)
+
+        return blob_client.url
+
+    async def upload_artifact_stream(
+        self,
+        container: str,
+        blob_name: str,
+        data: AsyncIterable[bytes],
+        *,
+        length: int | None = None,
+        overwrite: bool = True,
+    ) -> str:
+        """Upload streamed artifact data to blob storage.
+
+        Args:
+            container: Container name.
+            blob_name: Blob name (path within container).
+            data: Async iterable yielding bytes chunks.
+            length: Optional known total byte length.
+            overwrite: Whether to overwrite existing blob (default: True).
+
+        Returns:
+            Blob URL.
+        """
+        client = self._ensure_client()
+        container_client = client.get_container_client(container)
+
+        try:
+            await container_client.create_container()
+        except Exception:
+            pass
+
+        blob_client = container_client.get_blob_client(blob_name)
+        await blob_client.upload_blob(data, length=length, overwrite=overwrite)
 
         return blob_client.url
 
