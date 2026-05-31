@@ -2,15 +2,14 @@ import json
 import logging
 import os
 from datetime import UTC, datetime
-from typing import Any, Literal
-from urllib.error import HTTPError
+from typing import Any
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 import azure.functions as func
 from azure.identity import DefaultAzureCredential
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 app = func.FunctionApp()
 
@@ -18,33 +17,29 @@ app = func.FunctionApp()
 class SchedulerSettings(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    execution_mode: Literal["api", "queue"] = "api"
     default_tenant_id: str = Field(default="default", min_length=1)
-    api_base_url: str = "http://localhost:8000/api"
-    api_sync_path: str = "/sharepoint/sites/sync"
+    api_base_url: str = Field(..., min_length=1)
+    api_sites_path: str = Field(..., min_length=1)
     api_search: str = "*"
     api_max_results: int = Field(default=200, ge=1, le=1000)
     api_timeout_seconds: int = Field(default=30, ge=5)
     default_library_name: str = "Documents"
 
-    @field_validator("execution_mode", mode="before")
-    @classmethod
-    def _normalize_execution_mode(cls, value: object) -> object:
-        return str(value or "api").strip().lower()
-
-    @field_validator("api_sync_path", mode="before")
-    @classmethod
-    def _normalize_sync_path(cls, value: object) -> str:
-        path = str(value or "/sharepoint/sites/sync").strip()
-        if not path:
-            return "/sharepoint/sites/sync"
-        return path if path.startswith("/") else f"/{path}"
-
     @field_validator("api_base_url", mode="before")
     @classmethod
     def _normalize_api_base_url(cls, value: object) -> str:
-        url = str(value or "http://localhost:8000/api").strip().rstrip("/")
-        return url or "http://localhost:8000/api"
+        url = str(value or "").strip().rstrip("/")
+        if not url:
+            raise ValueError("SYNC_API_BASE_URL is required")
+        return url
+
+    @field_validator("api_sites_path", mode="before")
+    @classmethod
+    def _normalize_sites_path(cls, value: object) -> str:
+        path = str(value or "").strip()
+        if not path:
+            raise ValueError("SYNC_API_SITES_PATH is required")
+        return path if path.startswith("/") else f"/{path}"
 
     @field_validator("api_search", mode="before")
     @classmethod
@@ -63,15 +58,30 @@ class SchedulerSettings(BaseModel):
         raw = {
             "default_tenant_id": os.getenv("SYNC_DEFAULT_TENANT_ID"),
             "api_base_url": os.getenv("SYNC_API_BASE_URL"),
-            "api_sync_path": os.getenv("SYNC_API_SYNC_PATH"),
-            "api_search": os.getenv("SYNC_SITES_SEARCH"),
-            "api_max_results": os.getenv("SYNC_SITES_MAX_RESULTS"),
+            "api_sites_path": os.getenv("SYNC_API_SITES_PATH"),
+            "api_search": os.getenv("SYNC_API_SEARCH"),
+            "api_max_results": os.getenv("SYNC_API_MAX_RESULTS"),
             "api_timeout_seconds": os.getenv("SYNC_API_TIMEOUT_SECONDS"),
             "default_library_name": os.getenv("SYNC_DEFAULT_LIBRARY_NAME"),
-            "execution_mode": os.getenv("SYNC_EXECUTION_MODE"),
         }
         env_values = {k: v for k, v in raw.items() if v is not None}
         return cls.model_validate(env_values)
+
+
+class SchedulerHttpRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    tenant_id: str | None = Field(default=None, min_length=1)
+    search: str | None = Field(default=None, min_length=1)
+    max_results: int | None = Field(default=None, ge=1, le=1000)
+
+    @field_validator("search", mode="before")
+    @classmethod
+    def _normalize_search(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
 
 
 def _service_bus_client() -> ServiceBusClient:
@@ -174,29 +184,6 @@ def _enqueue_messages(message_payloads: list[dict[str, Any]]) -> int:
     return sent
 
 
-def _sync_sites_via_api(settings: SchedulerSettings, tenant_id: str, sites: list[dict[str, Any]]) -> dict[str, Any]:
-    sites = _validate_sites_or_raise(sites)
-    payload = {
-        "tenant_id": tenant_id,
-        "sites": [_normalize_site_payload(site, tenant_id) for site in sites],
-    }
-    request = Request(
-        url=f"{settings.api_base_url}{settings.api_sync_path}",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=settings.api_timeout_seconds) as response:  # nosec B310
-            return json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        details = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Sync API returned HTTP {exc.code}: {details[:500]}") from exc
-
-
 def _site_from_web_url(web_url: str) -> dict[str, Any] | None:
     parsed = urlparse(web_url)
     hostname = (parsed.hostname or "").strip()
@@ -211,9 +198,15 @@ def _site_from_web_url(web_url: str) -> dict[str, Any] | None:
 
 def _load_scheduled_sites(settings: SchedulerSettings) -> tuple[str, list[dict[str, Any]]]:
     tenant_id = settings.default_tenant_id
-    query = urlencode({"search": settings.api_search, "max_results": settings.api_max_results})
+    query = urlencode(
+        {
+            "search": settings.api_search,
+            "max_results": settings.api_max_results,
+            "include_libraries": "true",
+        }
+    )
     request = Request(
-        url=f"{settings.api_base_url}/sharepoint/sites?{query}",
+        url=f"{settings.api_base_url}{settings.api_sites_path}?{query}",
         headers={"Accept": "application/json"},
         method="GET",
     )
@@ -232,17 +225,39 @@ def _load_scheduled_sites(settings: SchedulerSettings) -> tuple[str, list[dict[s
     for item in source_sites:
         if not isinstance(item, dict):
             continue
+
         web_url = str(item.get("webUrl") or item.get("web_url") or "").strip()
         site = _site_from_web_url(web_url)
         if site is None:
             continue
-        site["library_name"] = default_library
+
+        libraries = item.get("libraries")
+        if isinstance(libraries, list) and libraries:
+            for library in libraries:
+                if not isinstance(library, dict):
+                    continue
+
+                drive_id = str(library.get("drive_id") or library.get("id") or "").strip()
+                library_name = str(library.get("library_name") or library.get("name") or "").strip()
+                entry: dict[str, Any] = {
+                    "tenant_id": tenant_id,
+                    "site_hostname": site["site_hostname"],
+                    "site_path": site["site_path"],
+                    "library_name": library_name or default_library,
+                }
+                if drive_id:
+                    entry["drive_id"] = drive_id
+                sites.append(entry)
+
+            continue
+
+        # Backward-compatible fallback when API does not return per-site libraries.
         sites.append(
             {
                 "tenant_id": tenant_id,
                 "site_hostname": site["site_hostname"],
                 "site_path": site["site_path"],
-                "library_name": site["library_name"],
+                "library_name": default_library,
             }
         )
 
@@ -254,28 +269,22 @@ def _load_scheduled_sites(settings: SchedulerSettings) -> tuple[str, list[dict[s
 def schedule_sharepoint_sync(timer: func.TimerRequest) -> None:
     logging.info("SharePoint sync scheduler timer fired.")
     try:
+        if timer.past_due:
+            logging.info("Skipping past-due timer invocation per no-replay policy.")
+            return
+
         settings = SchedulerSettings.from_env()
+        logging.info(
+            "Scheduling sync with site filter search='%s' max_results=%s",
+            settings.api_search,
+            settings.api_max_results,
+        )
         tenant_id, sites = _load_scheduled_sites(settings)
         if not sites:
             logging.info("No sites resolved for scheduled sync; nothing to do.")
             return
 
         sites = _validate_sites_or_raise(sites)
-
-        if settings.execution_mode == "api":
-            logging.info("Executing scheduled sync via API (%s site(s)).", len(sites))
-            result = _sync_sites_via_api(settings, tenant_id=tenant_id, sites=sites)
-            data = result.get("data") if isinstance(result, dict) else {}
-            if isinstance(data, dict):
-                logging.info(
-                    "Scheduled API sync done: total=%s succeeded=%s failed=%s",
-                    data.get("total_sites"),
-                    data.get("succeeded_sites"),
-                    data.get("failed_sites"),
-                )
-            else:
-                logging.info("Scheduled API sync completed.")
-            return
 
         payloads = _build_messages(sites, tenant_id=tenant_id, source="timer")
         sent = _enqueue_messages(payloads)
@@ -285,51 +294,54 @@ def schedule_sharepoint_sync(timer: func.TimerRequest) -> None:
         raise
 
 
-@app.function_name(name="EnqueueSharePointSync")
+@app.function_name(name="SharePointSync")
 @app.route(route="schedule/sharepoint-sync", auth_level=func.AuthLevel.FUNCTION, methods=["POST"])
 def enqueue_sharepoint_sync(req: func.HttpRequest) -> func.HttpResponse:
     settings = SchedulerSettings.from_env()
 
+    # Keep request body optional for HTTP parity with timer behavior.
     try:
-        body = req.get_json()
+        if req.get_body():
+            body = req.get_json()
+            if not isinstance(body, dict):
+                return func.HttpResponse("Request body must be a JSON object.", status_code=400)
+
+            request = SchedulerHttpRequest.model_validate(body)
+            updates: dict[str, Any] = {}
+            if request.tenant_id:
+                updates["default_tenant_id"] = request.tenant_id
+            if request.search:
+                updates["api_search"] = request.search
+            if request.max_results is not None:
+                updates["api_max_results"] = request.max_results
+
+            if updates:
+                settings = settings.model_copy(update=updates)
+    except ValidationError as exc:
+        return func.HttpResponse(exc.json(), status_code=400, mimetype="application/json")
     except ValueError:
         return func.HttpResponse("Invalid JSON body.", status_code=400)
 
-    if not isinstance(body, dict):
-        return func.HttpResponse("Request body must be a JSON object.", status_code=400)
+    tenant_id, sites = _load_scheduled_sites(settings)
+    if not sites:
+        response = {
+            "execution_mode": "queue",
+            "tenant_id": tenant_id,
+            "queued_messages": 0,
+            "queue_name": _queue_name(),
+            "message": "No sites resolved for scheduled sync; nothing queued.",
+        }
+        return func.HttpResponse(json.dumps(response), mimetype="application/json", status_code=202)
 
-    tenant_id = str(body.get("tenant_id") or settings.default_tenant_id)
-    sites = body.get("sites")
-
-    if sites is None:
-        # Allow single-site payload shape for convenience.
-        sites = [body]
-
-    try:
-        sites = _validate_sites_or_raise(sites)
-    except ValueError as exc:
-        return func.HttpResponse(str(exc), status_code=400)
-
-    if settings.execution_mode == "api":
-        try:
-            result = _sync_sites_via_api(settings, tenant_id=tenant_id, sites=sites)
-            response = {
-                "execution_mode": "api",
-                "tenant_id": tenant_id,
-                "requested_sites": len(sites),
-                "result": result,
-            }
-            return func.HttpResponse(json.dumps(response), mimetype="application/json", status_code=200)
-        except Exception as exc:
-            logging.exception("Failed HTTP-triggered API sync: %s", exc)
-            return func.HttpResponse(str(exc), status_code=500)
-
+    sites = _validate_sites_or_raise(sites)
     payloads = _build_messages(sites, tenant_id=tenant_id, source="http")
     sent = _enqueue_messages(payloads)
 
     response = {
         "execution_mode": "queue",
         "tenant_id": tenant_id,
+        "search": settings.api_search,
+        "max_results": settings.api_max_results,
         "queued_messages": sent,
         "queue_name": _queue_name(),
     }

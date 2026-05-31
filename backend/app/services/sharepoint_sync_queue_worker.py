@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from collections.abc import Iterable
 
+from azure.core.exceptions import HttpResponseError
 from azure.identity.aio import DefaultAzureCredential
 from azure.servicebus.aio import ServiceBusClient
 from azure.servicebus.exceptions import ServiceBusError
@@ -18,7 +18,9 @@ from pydantic import ValidationError
 
 from app.api.schemas.sharepoint import SharePointSyncRequest
 from app.core.logger import Logger
-from app.ingestion.sharepoint_sync_service import ISharePointSyncService
+from app.core.settings import ServiceBusSettings
+from app.ingestion.search.search_pipeline_orchestrator import ISearchPipelineOrchestrator
+from app.ingestion.sharepoint.sharepoint_sync_service import ISharePointSyncService
 
 
 class SharePointSyncQueueWorker:
@@ -27,23 +29,25 @@ class SharePointSyncQueueWorker:
     def __init__(
         self,
         sync_service: ISharePointSyncService,
+        pipeline_orchestrator: ISearchPipelineOrchestrator,
+        service_bus_settings: ServiceBusSettings,
         logger: Logger,
     ) -> None:
         self._sync_service = sync_service
+        self._pipeline_orchestrator = pipeline_orchestrator
+        self._service_bus = service_bus_settings
         self._logger = logger
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
+        self._pipeline_ready = False
+        self._pipeline_setup_lock = asyncio.Lock()
 
     def is_enabled(self) -> bool:
-        """Return True when queue consumption is enabled."""
-        value = (os.getenv("SERVICEBUS_QUEUE_CONSUMER_ENABLED") or "false").strip().lower()
-        return value in {"1", "true", "yes", "on"}
+        """Return True to keep queue consumption always enabled."""
+        return True
 
     async def start(self) -> None:
-        """Start the background consumer task when enabled."""
-        if not self.is_enabled():
-            self._logger.info("Service Bus sync queue consumer disabled.")
-            return
+        """Start the background consumer task."""
 
         if self._task and not self._task.done():
             return
@@ -66,13 +70,13 @@ class SharePointSyncQueueWorker:
             self._task = None
 
     async def _run(self) -> None:
-        queue_name = (os.getenv("SERVICEBUS_QUEUE_NAME") or "").strip()
+        queue_name = (self._service_bus.queue_name or "").strip()
         if not queue_name:
             self._logger.warning("SERVICEBUS_QUEUE_NAME is not set. Queue consumer not started.")
             return
 
-        retry_delay_seconds = float((os.getenv("SERVICEBUS_RECEIVER_RETRY_SECONDS") or "5").strip() or "5")
-        max_delivery_attempts = int((os.getenv("SERVICEBUS_MAX_DELIVERY_ATTEMPTS") or "5").strip() or "5")
+        retry_delay_seconds = self._service_bus.receiver_retry_seconds
+        max_delivery_attempts = self._service_bus.max_delivery_attempts
 
         while not self._stop_event.is_set():
             try:
@@ -97,15 +101,15 @@ class SharePointSyncQueueWorker:
                 await asyncio.sleep(retry_delay_seconds)
 
     def _create_client(self) -> ServiceBusClient:
-        connection_string = (os.getenv("SERVICEBUS_CONNECTION_STRING") or "").strip()
+        connection_string = (self._service_bus.connection_string or "").strip()
         if connection_string:
             return ServiceBusClient.from_connection_string(connection_string)
 
-        fully_qualified_namespace = (os.getenv("SERVICEBUS_FQDN") or "").strip()
+        fully_qualified_namespace = (self._service_bus.fqdn or "").strip()
         if not fully_qualified_namespace:
             raise ValueError("Set SERVICEBUS_CONNECTION_STRING or SERVICEBUS_FQDN.")
 
-        managed_identity_client_id = (os.getenv("SERVICEBUS_MANAGED_IDENTITY_CLIENT_ID") or "").strip() or None
+        managed_identity_client_id = (self._service_bus.managed_identity_client_id or "").strip() or None
         credential = DefaultAzureCredential(managed_identity_client_id=managed_identity_client_id)
         return ServiceBusClient(fully_qualified_namespace=fully_qualified_namespace, credential=credential)
 
@@ -117,7 +121,13 @@ class SharePointSyncQueueWorker:
                 raise ValueError("Message payload must be a JSON object.")
 
             sync_request = SharePointSyncRequest.model_validate(payload)
-            await self._sync_service.sync_site(sync_request)
+            sync_result = await self._sync_service.sync_site(sync_request)
+            if self._has_indexable_changes(sync_result):
+                await self._run_indexers_after_sync()
+            else:
+                self._logger.info(
+                    "Skipping indexer trigger after SharePoint sync; no add/update/delete changes were detected."
+                )
             await receiver.complete_message(message)
 
         except (ValidationError, ValueError, json.JSONDecodeError) as exc:
@@ -146,3 +156,41 @@ class SharePointSyncQueueWorker:
             return json.loads(content.decode("utf-8"))
 
         raise ValueError("Unsupported Service Bus message body type.")
+
+    async def _run_indexers_after_sync(self) -> None:
+        await self._ensure_pipeline_ready()
+
+        try:
+            await self._pipeline_orchestrator.run_indexer_async()
+            self._logger.info("Triggered search indexers after SharePoint sync message.")
+        except HttpResponseError as exc:
+            if self._is_indexer_run_conflict(exc):
+                self._logger.info("Indexer run already in progress; skipping duplicate trigger.")
+                return
+            raise
+
+    async def _ensure_pipeline_ready(self) -> None:
+        if self._pipeline_ready:
+            return
+
+        async with self._pipeline_setup_lock:
+            if self._pipeline_ready:
+                return
+
+            if await self._pipeline_orchestrator.is_first_run_async():
+                self._logger.info("Search pipeline not found. Running setup before indexer trigger.")
+                await self._pipeline_orchestrator.setup_pipeline_async()
+
+            self._pipeline_ready = True
+
+    @staticmethod
+    def _is_indexer_run_conflict(exc: HttpResponseError) -> bool:
+        text = str(exc).lower()
+        return "already in progress" in text or "already running" in text or "another indexer invocation" in text
+
+    @staticmethod
+    def _has_indexable_changes(sync_result: object) -> bool:
+        added = int(getattr(sync_result, "added", 0) or 0)
+        updated = int(getattr(sync_result, "updated", 0) or 0)
+        deleted = int(getattr(sync_result, "deleted", 0) or 0)
+        return (added + updated + deleted) > 0

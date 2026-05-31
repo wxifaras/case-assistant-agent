@@ -300,6 +300,24 @@ class SharePointSettings(AppConfigAwareSettings):
     )
 
 
+class ServiceBusSettings(AppConfigAwareSettings):
+    """Azure Service Bus settings for queue producer/consumer flows."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="SERVICEBUS_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    connection_string: str | None = Field(default=None, description="Service Bus connection string (optional)")
+    fqdn: str | None = Field(default=None, description="Service Bus namespace FQDN")
+    queue_name: str | None = Field(default=None, description="Queue name for SharePoint sync requests")
+    managed_identity_client_id: str | None = Field(
+        default=None,
+        description="Optional user-assigned managed identity client id",
+    )
+    receiver_retry_seconds: float = Field(default=5.0, gt=0, description="Retry delay for receiver loop errors")
+    max_delivery_attempts: int = Field(default=5, ge=1, description="Max attempts before dead-lettering a message")
+
+
 class APISettings(AppConfigAwareSettings):
     """API server settings."""
 
@@ -354,6 +372,7 @@ class Settings(AppConfigAwareSettings):
     pii_detection: PIIDetectionSettings = Field(default_factory=lambda: PIIDetectionSettings())  # type: ignore[call-arg]
     foundry_agent: FoundryAgentSettings = Field(default_factory=lambda: FoundryAgentSettings())  # type: ignore[call-arg]
     sharepoint: SharePointSettings = Field(default_factory=lambda: SharePointSettings())  # type: ignore[call-arg]
+    service_bus: ServiceBusSettings = Field(default_factory=lambda: ServiceBusSettings())  # type: ignore[call-arg]
 
     # Application Settings
     environment: str = Field(default="development", description="Environment: development, staging, production")

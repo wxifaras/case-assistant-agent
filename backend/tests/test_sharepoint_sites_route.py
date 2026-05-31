@@ -33,7 +33,7 @@ async def test_list_sites_returns_success_payload() -> None:
     assert payload["message"] == "SharePoint sites retrieved"
     assert payload["data"]["count"] == 1
     assert payload["data"]["sites"][0]["id"] == "site-1"
-    service.get_sites.assert_awaited_once_with(search="*", max_results=50)
+    service.get_sites.assert_awaited_once_with(search="*", max_results=50, include_libraries=False)
 
 
 @pytest.mark.unit

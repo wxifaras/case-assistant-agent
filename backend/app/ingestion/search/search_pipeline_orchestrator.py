@@ -8,10 +8,10 @@ from abc import ABC, abstractmethod
 
 from azure.core.exceptions import ResourceNotFoundError
 
-from app.ingestion.data_source_service import IDataSourceService
-from app.ingestion.indexer_service import IIndexerService
-from app.ingestion.search_index_service import ISearchIndexService
-from app.ingestion.skillset_service import ISkillsetService
+from app.ingestion.search.data_source_service import IDataSourceService
+from app.ingestion.search.indexer_service import IIndexerService
+from app.ingestion.search.search_index_service import ISearchIndexService
+from app.ingestion.search.skillset_service import ISkillsetService
 from app.models.config_options import SearchServiceOptions
 
 

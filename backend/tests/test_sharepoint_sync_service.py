@@ -6,7 +6,15 @@ import pytest
 
 from app.api.schemas.sharepoint import SharePointSyncRequest
 from app.core.settings import Settings
-from app.ingestion.sharepoint_sync_service import SharePointSyncService
+from app.ingestion.sharepoint import (
+    SharePointFileSyncRunner,
+    SharePointGraphClient,
+    SharePointMembershipService,
+    SharePointSiteDiscoveryService,
+    SharePointSyncStateStore,
+    SharePointTransferService,
+)
+from app.ingestion.sharepoint.sharepoint_sync_service import SharePointSyncService
 from app.models.sharepoint import SharePointSiteMemberItem
 
 
@@ -47,12 +55,54 @@ def _make_request(**overrides) -> SharePointSyncRequest:
     return SharePointSyncRequest(**base)
 
 
+def _make_service(
+    settings: Settings | None = None,
+    blob_service: MagicMock | None = None,
+    logger: MagicMock | None = None,
+    *,
+    sites_repo=None,
+) -> SharePointSyncService:
+    resolved_settings = settings or _make_settings()
+    resolved_blob_service = blob_service or MagicMock()
+    resolved_logger = logger or MagicMock()
+    return SharePointSyncService(
+        resolved_settings,
+        resolved_blob_service,
+        resolved_logger,
+        sites_repo=sites_repo,
+        membership_service=SharePointMembershipService(
+            graph_base_url=resolved_settings.sharepoint.graph_base_url,
+        ),
+        graph_client=SharePointGraphClient(
+            graph_base_url=resolved_settings.sharepoint.graph_base_url,
+        ),
+        site_discovery_service=SharePointSiteDiscoveryService(
+            graph_base_url=resolved_settings.sharepoint.graph_base_url,
+        ),
+        state_store=SharePointSyncStateStore(
+            blob_service=resolved_blob_service,
+            sites_repo=sites_repo,
+            build_state_id=SharePointSyncService._build_state_id,
+            build_site_id=SharePointSyncService._build_site_id,
+        ),
+        file_sync_runner=SharePointFileSyncRunner(
+            logger=resolved_logger,
+            build_state_id=SharePointSyncService._build_state_id,
+        ),
+        transfer_service=SharePointTransferService(
+            blob_service=resolved_blob_service,
+            graph_base_url=resolved_settings.sharepoint.graph_base_url,
+            download_chunk_size_bytes=resolved_settings.sharepoint.download_chunk_size_bytes,
+        ),
+    )
+
+
 @pytest.mark.unit
 def test_resolve_container_prefers_request_then_default_then_blob() -> None:
     blob_service = MagicMock()
     logger = MagicMock()
 
-    svc = SharePointSyncService(
+    svc = _make_service(
         _make_settings(container_name="docs-default", default_blob_container="sp-default"),
         blob_service,
         logger,
@@ -61,13 +111,13 @@ def test_resolve_container_prefers_request_then_default_then_blob() -> None:
     assert svc._resolve_container(_make_request(destination_container="explicit")) == "explicit"
     assert svc._resolve_container(_make_request()) == "sp-default"
 
-    svc2 = SharePointSyncService(_make_settings(container_name="docs-default"), blob_service, logger)
+    svc2 = _make_service(_make_settings(container_name="docs-default"), blob_service, logger)
     assert svc2._resolve_container(_make_request()) == "docs-default"
 
 
 @pytest.mark.unit
 def test_resolve_site_prefers_request_then_env() -> None:
-    svc = SharePointSyncService(
+    svc = _make_service(
         _make_settings(site_hostname="env.sharepoint.com", site_path="/sites/EnvSite"),
         MagicMock(),
         MagicMock(),
@@ -82,7 +132,7 @@ def test_resolve_site_prefers_request_then_env() -> None:
 
 @pytest.mark.unit
 def test_resolve_site_raises_when_missing_from_request_and_env() -> None:
-    svc = SharePointSyncService(_make_settings(), MagicMock(), MagicMock())
+    svc = _make_service(_make_settings(), MagicMock(), MagicMock())
 
     with pytest.raises(ValueError, match="site_hostname and site_path"):
         svc._resolve_site(_make_request(site_hostname=None, site_path=None))
@@ -115,12 +165,12 @@ def test_extract_case_code_from_site_name(site_name: str, expected: str) -> None
     ],
 )
 def test_normalize_sites_search(search: str, expected: str) -> None:
-    assert SharePointSyncService._normalize_sites_search(search) == expected
+    assert SharePointSiteDiscoveryService.normalize_sites_search(search) == expected
 
 
 @pytest.mark.unit
 def test_build_sharepoint_metadata_includes_case_code() -> None:
-    svc = SharePointSyncService(_make_settings(), MagicMock(), MagicMock())
+    svc = _make_service(_make_settings(), MagicMock(), MagicMock())
 
     metadata = svc._build_sharepoint_metadata(
         site_name="IRISSoftware KMAutomation KM01",
@@ -148,7 +198,7 @@ async def test_sync_copies_files_and_returns_summary(monkeypatch: pytest.MonkeyP
     blob_service.upload_artifact_stream = AsyncMock()
     logger = MagicMock()
 
-    svc = SharePointSyncService(_make_settings(), blob_service, logger)
+    svc = _make_service(_make_settings(), blob_service, logger)
 
     async def fake_token() -> str:
         return "token"
@@ -213,7 +263,7 @@ async def test_sync_copies_files_and_returns_summary(monkeypatch: pytest.MonkeyP
 async def test_sync_records_failed_files(monkeypatch: pytest.MonkeyPatch) -> None:
     blob_service = MagicMock()
     blob_service.upload_artifact_stream = AsyncMock()
-    svc = SharePointSyncService(_make_settings(), blob_service, MagicMock())
+    svc = _make_service(_make_settings(), blob_service, MagicMock())
 
     file_a = {
         "id": "a",
@@ -249,7 +299,7 @@ async def test_sync_records_failed_files(monkeypatch: pytest.MonkeyPatch) -> Non
 async def test_sync_falls_back_to_graph_content_when_download_url_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     blob_service = MagicMock()
     blob_service.upload_artifact_stream = AsyncMock()
-    svc = SharePointSyncService(_make_settings(), blob_service, MagicMock())
+    svc = _make_service(_make_settings(), blob_service, MagicMock())
 
     file_a = {
         "id": "a",
@@ -290,7 +340,7 @@ async def test_sync_falls_back_to_drive_item_content_when_download_url_missing(
 ) -> None:
     blob_service = MagicMock()
     blob_service.upload_artifact_stream = AsyncMock()
-    svc = SharePointSyncService(_make_settings(), blob_service, MagicMock())
+    svc = _make_service(_make_settings(), blob_service, MagicMock())
 
     async def fake_iter(headers, drive_id, folder_item_id):
         yield {
@@ -323,7 +373,7 @@ async def test_sync_falls_back_to_drive_item_content_when_download_url_missing(
 async def test_sync_payload_site_and_library_override_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     blob_service = MagicMock()
     blob_service.upload_artifact_stream = AsyncMock()
-    svc = SharePointSyncService(
+    svc = _make_service(
         _make_settings(
             site_hostname="env.sharepoint.com",
             site_path="/sites/EnvSite",
@@ -385,7 +435,7 @@ async def test_sync_payload_site_and_library_override_env_defaults(monkeypatch: 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_list_site_members_returns_projected_members(monkeypatch: pytest.MonkeyPatch) -> None:
-    svc = SharePointSyncService(_make_settings(), MagicMock(), MagicMock(), sites_repo=MagicMock())
+    svc = _make_service(_make_settings(), MagicMock(), MagicMock(), sites_repo=MagicMock())
 
     monkeypatch.setattr(svc, "_acquire_graph_token", AsyncMock(return_value="token"))
     monkeypatch.setattr(svc, "_resolve_site_info", AsyncMock(return_value=("site-1", "Site One")))
@@ -418,7 +468,7 @@ async def test_list_site_members_returns_projected_members(monkeypatch: pytest.M
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_list_member_sites_returns_member_sites(monkeypatch: pytest.MonkeyPatch) -> None:
-    svc = SharePointSyncService(_make_settings(), MagicMock(), MagicMock(), sites_repo=MagicMock())
+    svc = _make_service(_make_settings(), MagicMock(), MagicMock(), sites_repo=MagicMock())
 
     monkeypatch.setattr(svc, "_acquire_graph_token", AsyncMock(return_value="token"))
     monkeypatch.setattr(

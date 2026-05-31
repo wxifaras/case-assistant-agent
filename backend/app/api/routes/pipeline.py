@@ -30,8 +30,8 @@ from app.api.dependencies import (
 )
 from app.api.schemas.pipeline import PipelineActionRequest
 from app.core.settings import Settings
-from app.ingestion.indexer_service import IIndexerService
-from app.ingestion.search_pipeline_orchestrator import ISearchPipelineOrchestrator
+from app.ingestion.search.indexer_service import IIndexerService
+from app.ingestion.search.search_pipeline_orchestrator import ISearchPipelineOrchestrator
 
 router = APIRouter(prefix="/pipeline", tags=["Ingestion Pipeline"])
 
@@ -262,5 +262,3 @@ async def get_indexer_status(
     except Exception as e:
         logger.error(f"Unexpected error retrieving indexer status: {str(e)}")
         return error(500, "Internal server error", str(e))
-
-

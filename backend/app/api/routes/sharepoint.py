@@ -1,6 +1,6 @@
 """SharePoint site discovery and multi-site sync endpoints."""
 
-from typing import Any
+from typing import Annotated, Any
 
 from azure.core.exceptions import AzureError
 from fastapi import APIRouter, Body, Depends, Query
@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.dependencies import get_logger, get_sharepoint_sync_service
 from app.api.schemas.sharepoint import SharePointMultiSiteSyncRequest, SharePointSyncRequest
-from app.ingestion.sharepoint_sync_service import ISharePointSyncService
+from app.ingestion.sharepoint.sharepoint_sync_service import ISharePointSyncService
 
 router = APIRouter(prefix="/sharepoint/sites", tags=["SharePoint Sites"], redirect_slashes=False)
 
@@ -31,17 +31,29 @@ def error(status_code: int, message: str, details: str | None = None) -> JSONRes
 async def get_sites(
     search: str = Query(default="*", min_length=1, description="Graph site search string."),
     max_results: int = Query(default=200, ge=1, le=1000, description="Maximum number of sites to return."),
+    include_libraries: Annotated[
+        bool,
+        Query(description="When true, expand each site with its document libraries (drive_id + library_name)."),
+    ] = False,
     sharepoint_service: ISharePointSyncService = Depends(get_sharepoint_sync_service),
     logger=Depends(get_logger),
 ) -> JSONResponse:
     """List SharePoint sites visible to the configured app identity."""
-    logger.info(f"SharePoint list sites endpoint triggered: search='{search}' max_results={max_results}")
+    logger.info(
+        f"SharePoint list sites endpoint triggered: search='{search}' max_results={max_results} "
+        f"include_libraries={include_libraries}"
+    )
     try:
-        sites = await sharepoint_service.get_sites(search=search, max_results=max_results)
+        sites = await sharepoint_service.get_sites(
+            search=search,
+            max_results=max_results,
+            include_libraries=include_libraries,
+        )
         return success(
             "SharePoint sites retrieved",
             {
                 "search": search,
+                "include_libraries": include_libraries,
                 "count": len(sites),
                 "sites": sites,
             },
