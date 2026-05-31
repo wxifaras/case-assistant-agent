@@ -1,0 +1,41 @@
+# Checked-in API test template.
+# Copy this file to backend/tests/api-tests.local.http for environment-specific values.
+
+@baseUrl = http://localhost:8000/api
+
+###
+
+### Pipeline setup
+POST {{baseUrl}}/pipeline/setup-pipeline
+Content-Type: application/json
+
+{
+  "reset": false
+}
+
+###
+
+### Run indexer
+POST {{baseUrl}}/pipeline/run-indexer
+Content-Type: application/json
+
+{
+  "reset": false
+}
+
+###
+
+### Get indexer status
+GET {{baseUrl}}/pipeline/indexer-status
+Accept: application/json
+
+###
+
+### SharePoint sync (env fallback for site/library)
+POST {{baseUrl}}/sharepoint/sites/sync-site
+Content-Type: application/json
+
+{}
+
+###
+

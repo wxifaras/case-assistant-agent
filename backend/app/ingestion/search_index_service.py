@@ -195,6 +195,14 @@ class SearchIndexService(ISearchIndexService):
                 facetable=False,
             ),
             SimpleField(
+                name="sp_case_code",
+                type=SearchFieldDataType.String,
+                searchable=True,
+                filterable=True,
+                sortable=False,
+                facetable=True,
+            ),
+            SimpleField(
                 name="sp_library_name",
                 type=SearchFieldDataType.String,
                 searchable=True,

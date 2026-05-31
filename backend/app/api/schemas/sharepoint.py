@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class SharePointSyncRequest(BaseModel):
-    """Request payload for ``POST /pipeline/sync-sharepoint``.
+    """Request payload for ``POST /sharepoint/sites/sync-site``.
 
     Identify the source by ``site_hostname`` + ``site_path`` (Graph
     ``/sites/{hostname}:{site-path}:`` resolution) and either ``library_name``
@@ -41,18 +41,10 @@ class SharePointSyncRequest(BaseModel):
         default=None,
         description="Destination blob container. Falls back to SHAREPOINT_DEFAULT_BLOB_CONTAINER or BLOBSTORAGE_CONTAINER_NAME.",
     )
-    blob_prefix: str | None = Field(
+    tenant_id: str | None = Field(
         default=None,
-        description="Optional blob name prefix. A trailing slash is added if missing.",
-    )
-    max_files: int | None = Field(
-        default=None,
-        ge=1,
-        description="Per-request cap on files to copy. Bounded by SHAREPOINT_MAX_FILES_PER_RUN.",
-    )
-    dry_run: bool = Field(
-        default=False,
-        description="When True, list and report files without uploading to blob storage.",
+        min_length=1,
+        description="Tenant identifier used for Cosmos partitioning. Defaults to AZURE_TENANT_ID when omitted.",
     )
 
 
@@ -62,7 +54,7 @@ class SharePointSyncItemResult(BaseModel):
     source_path: str = Field(..., description="SharePoint path of the source file")
     blob_name: str | None = Field(default=None, description="Destination blob name when uploaded")
     size_bytes: int | None = Field(default=None, description="File size reported by Graph")
-    status: str = Field(..., description="One of: copied, skipped, failed, dry_run")
+    status: str = Field(..., description="One of: copied, skipped, failed")
     reason: str | None = Field(default=None, description="Skip or failure reason when applicable")
 
 
@@ -71,7 +63,7 @@ class SharePointSyncResponse(BaseModel):
 
     discovered: int = Field(..., description="Total files discovered")
     copied: int = Field(..., description="Files successfully uploaded")
-    skipped: int = Field(..., description="Files skipped (for example folders, capped, dry-run)")
+    skipped: int = Field(..., description="Files skipped (for example folders, unchanged)")
     failed: int = Field(..., description="Files that failed during download or upload")
     elapsed_seconds: float = Field(..., description="Wall-clock duration of the sync run")
     destination_container: str = Field(..., description="Resolved destination blob container")
@@ -79,3 +71,29 @@ class SharePointSyncResponse(BaseModel):
         default_factory=list, description="Per-file outcomes (truncated when very large)"
     )
     warnings: list[str] = Field(default_factory=list, description="Top-level warnings emitted during the run")
+    added: int = Field(default=0, description="Files detected as new during this run")
+    updated: int = Field(default=0, description="Files detected as updated during this run")
+    unchanged: int = Field(default=0, description="Files unchanged from previous sync state")
+    deleted: int = Field(default=0, description="Files reconciled as deleted and soft-marked in blob metadata")
+
+
+class SharePointMultiSiteSyncRequest(BaseModel):
+    """Payload for syncing multiple sites in one API call."""
+
+    tenant_id: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Tenant identifier for partitioning. Defaults to AZURE_TENANT_ID when omitted.",
+    )
+    sites: list[SharePointSyncRequest] = Field(default_factory=list, description="Per-site sync requests")
+
+
+class SharePointMultiSiteSyncResponse(BaseModel):
+    """Aggregate payload for multi-site sync."""
+
+    tenant_id: str = Field(..., description="Tenant identifier used for this run")
+    total_sites: int = Field(default=0, description="Total sites requested")
+    succeeded_sites: int = Field(default=0, description="Sites synced without fatal error")
+    failed_sites: int = Field(default=0, description="Sites that failed")
+    results: list[SharePointSyncResponse] = Field(default_factory=list, description="Per-site sync results")
+    errors: list[str] = Field(default_factory=list, description="Per-site error summaries")

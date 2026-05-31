@@ -27,14 +27,11 @@ from app.api.dependencies import (
     get_logger,
     get_search_pipeline_orchestrator,
     get_settings,
-    get_sharepoint_sync_service,
 )
 from app.api.schemas.pipeline import PipelineActionRequest
-from app.api.schemas.sharepoint import SharePointSyncRequest
 from app.core.settings import Settings
 from app.ingestion.indexer_service import IIndexerService
 from app.ingestion.search_pipeline_orchestrator import ISearchPipelineOrchestrator
-from app.ingestion.sharepoint_sync_service import ISharePointSyncService
 
 router = APIRouter(prefix="/pipeline", tags=["Ingestion Pipeline"])
 
@@ -267,34 +264,3 @@ async def get_indexer_status(
         return error(500, "Internal server error", str(e))
 
 
-@router.post("/sync-sharepoint")
-async def sync_sharepoint(
-    request_body: SharePointSyncRequest = Body(...),
-    sharepoint_service: ISharePointSyncService = Depends(get_sharepoint_sync_service),
-    logger=Depends(get_logger),
-) -> JSONResponse:
-    """Copy files from a SharePoint document library into Blob Storage.
-
-    Stages SharePoint content for downstream indexing. Identify the source
-    via ``site_hostname`` + ``site_path`` and either ``library_name`` (drive
-    display name) or ``drive_id``. Optional ``folder_path`` scopes the copy
-    to a sub-folder.
-
-    Returns:
-        JSONResponse with a per-run summary (discovered/copied/skipped/failed)
-        plus per-file outcomes.
-    """
-    logger.info("Sync SharePoint endpoint triggered")
-
-    try:
-        result = await sharepoint_service.sync(request_body)
-        return success("SharePoint sync completed", result.model_dump())
-    except ValueError as e:
-        logger.warning(f"SharePoint sync rejected: {e}")
-        return error(400, "Invalid SharePoint sync request", str(e))
-    except AzureError as e:
-        logger.error(f"Azure error during SharePoint sync: {e}")
-        return error(500, "Azure service error", str(e))
-    except Exception as e:
-        logger.error(f"Unexpected error during SharePoint sync: {e}")
-        return error(500, "Internal server error", str(e))

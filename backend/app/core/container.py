@@ -108,6 +108,7 @@ from app.services.chat_service import ChatService, IChatService
 from app.services.foundry_service import FoundryService, IFoundryService
 from app.services.pii_detection_service import IPIIDetectionService, PIIDetectionService
 from app.services.search_service import ISearchService, SearchService
+from app.services.sharepoint_sync_queue_worker import SharePointSyncQueueWorker
 from app.utils.citation_tracker import CitationTracker
 from app.workflows.core import AgenticRAGWorkflow
 
@@ -384,6 +385,16 @@ class Container(containers.DeclarativeContainer):
         opts=cosmos_db_options,
     )
 
+    sites_cosmos_repository: providers.Singleton[CosmosRepository] = providers.Singleton(
+        lambda opts: CosmosRepository(
+            endpoint=opts.endpoint or None,
+            connection_string=opts.connection_string or None,
+            database_name=opts.database_name,
+            container_name=opts.sites_container_name,
+        ),
+        opts=cosmos_db_options,
+    )
+
     agentic_rag_workflow: providers.Factory[AgenticRAGWorkflow] = providers.Factory(
         AgenticRAGWorkflow,
         settings=config,
@@ -425,5 +436,12 @@ class Container(containers.DeclarativeContainer):
         SharePointSyncService,
         settings=config,
         blob_service=blob_storage_service,
+        logger=logger,
+        sites_repo=sites_cosmos_repository,
+    )
+
+    sharepoint_sync_queue_worker: providers.Singleton[SharePointSyncQueueWorker] = providers.Singleton(
+        SharePointSyncQueueWorker,
+        sync_service=sharepoint_sync_service,
         logger=logger,
     )

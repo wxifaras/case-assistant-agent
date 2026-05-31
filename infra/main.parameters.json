@@ -53,6 +53,12 @@
     },
     "storageAllowSharedKeyAccess": {
       "value": false
+    },
+    "serviceBusSkuName": {
+      "value": "Standard"
+    },
+    "serviceBusQueueName": {
+      "value": "sharepoint-sync-requests"
     }
   }
 }

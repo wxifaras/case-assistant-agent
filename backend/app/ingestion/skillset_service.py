@@ -286,6 +286,10 @@ class SkillsetService(ISkillsetService):
                         source="/document/sp_site_name",
                     ),
                     InputFieldMappingEntry(
+                        name="sp_case_code",
+                        source="/document/sp_case_code",
+                    ),
+                    InputFieldMappingEntry(
                         name="sp_library_name",
                         source="/document/sp_library_name",
                     ),
@@ -335,6 +339,10 @@ class SkillsetService(ISkillsetService):
                     InputFieldMappingEntry(
                         name="sp_site_name",
                         source="/document/sp_site_name",
+                    ),
+                    InputFieldMappingEntry(
+                        name="sp_case_code",
+                        source="/document/sp_case_code",
                     ),
                     InputFieldMappingEntry(
                         name="sp_library_name",
@@ -524,6 +532,7 @@ class SkillsetService(ISkillsetService):
                     {"name": "location_metadata", "source": "/document/text_sections/*/locationMetadata"},
                     {"name": "document_title", "source": "/document/document_title"},
                     {"name": "sp_site_name", "source": "/document/sp_site_name"},
+                    {"name": "sp_case_code", "source": "/document/sp_case_code"},
                     {"name": "sp_library_name", "source": "/document/sp_library_name"},
                     {"name": "sp_last_modified_utc", "source": "/document/sp_last_modified_utc"},
                     {"name": "sp_filename", "source": "/document/sp_filename"},
@@ -542,6 +551,7 @@ class SkillsetService(ISkillsetService):
                     {"name": "document_title", "source": "/document/document_title"},
                     {"name": "location_metadata", "source": "/document/normalized_images/*/locationMetadata"},
                     {"name": "sp_site_name", "source": "/document/sp_site_name"},
+                    {"name": "sp_case_code", "source": "/document/sp_case_code"},
                     {"name": "sp_library_name", "source": "/document/sp_library_name"},
                     {"name": "sp_last_modified_utc", "source": "/document/sp_last_modified_utc"},
                     {"name": "sp_filename", "source": "/document/sp_filename"},
@@ -666,6 +676,7 @@ class SkillsetService(ISkillsetService):
                         {"name": "content_text", "source": "/document/chunks/*"},
                         {"name": "document_title", "source": "/document/document_title"},
                         {"name": "sp_site_name", "source": "/document/sp_site_name"},
+                        {"name": "sp_case_code", "source": "/document/sp_case_code"},
                         {"name": "sp_library_name", "source": "/document/sp_library_name"},
                         {"name": "sp_last_modified_utc", "source": "/document/sp_last_modified_utc"},
                         {"name": "sp_filename", "source": "/document/sp_filename"},
@@ -734,4 +745,3 @@ class SkillsetService(ISkillsetService):
             index_name,
             "Skillset for JSON content \u2014 chunks and embeds text for vector search",
         )
-

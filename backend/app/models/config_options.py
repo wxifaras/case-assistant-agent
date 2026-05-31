@@ -243,10 +243,13 @@ class CosmosDBOptions(BaseModel):
         None, description="Cosmos DB connection string. Only use in dev/test - not recommended for production."
     )
     database_name: str = Field(
-        default="agentic_rag", min_length=1, description="Database name for storing conversations"
+        default="case-assistant-db", min_length=1, description="Database name for storing conversations"
     )
     container_name: str = Field(
         default="conversations", min_length=1, description="Container name for conversation history"
+    )
+    sites_container_name: str = Field(
+        default="sites", min_length=1, description="Container name for SharePoint sites and sync state"
     )
     enable_ttl: bool = Field(default=True, description="Enable automatic time-to-live for conversation cleanup")
     default_ttl_days: int = Field(
@@ -474,6 +477,7 @@ class APIOptions(BaseModel):
         "str_strip_whitespace": True,
     }
 
+
 class PIIDetectionOptions(BaseModel):
     """Configuration for Azure AI Language PII detection and redaction."""
 
@@ -527,4 +531,3 @@ class PIIDetectionOptions(BaseModel):
     model_config = {
         "str_strip_whitespace": True,
     }
-

@@ -67,6 +67,16 @@ param cosmosDisableLocalAuth bool = true
 @description('Allow shared key (account key) access on the storage account.')
 param storageAllowSharedKeyAccess bool = false
 
+// ---------- Service Bus ----------
+@description('Service Bus namespace SKU tier.')
+@allowed([
+  'Standard'
+])
+param serviceBusSkuName string = 'Standard'
+
+@description('Queue name for SharePoint sync jobs.')
+param serviceBusQueueName string = 'sharepoint-sync-requests'
+
 // ---------- Naming ----------
 // A short hash derived from the resource group ID makes globally-unique names
 // (Foundry custom subdomain, AI Services, Search, Cosmos, Key Vault, Storage)
@@ -87,6 +97,8 @@ param cosmosAccountNameOverride string = ''
 param keyVaultNameOverride string = ''
 @description('Override the storage account name. Leave empty to auto-generate. Max 24 chars, lowercase alphanumeric.')
 param storageAccountNameOverride string = ''
+@description('Override the Service Bus namespace name. Leave empty to auto-generate.')
+param serviceBusNamespaceNameOverride string = ''
 
 var foundryName = empty(foundryNameOverride) ? '${baseName}-foundry-${uniqueSuffix}' : foundryNameOverride
 var aiServicesName = empty(aiServicesNameOverride) ? '${baseName}-aiservices-${uniqueSuffix}' : aiServicesNameOverride
@@ -98,6 +110,8 @@ var logAnalyticsName = '${baseName}-law-${uniqueSuffix}'
 var appInsightsName = '${baseName}-appi-${uniqueSuffix}'
 // Storage account names must be 3-24 lowercase alphanumeric (no hyphens).
 var storageAccountName = empty(storageAccountNameOverride) ? take('${sanitizedBase}st${uniqueSuffix}', 24) : storageAccountNameOverride
+// Service Bus namespace names must be globally unique, 6-50 chars, alphanumeric and hyphens.
+var serviceBusNamespaceName = empty(serviceBusNamespaceNameOverride) ? toLower('${baseName}-sb-${uniqueSuffix}') : serviceBusNamespaceNameOverride
 
 // ---------- Modules ----------
 
@@ -164,6 +178,17 @@ module cosmos 'modules/cosmos.bicep' = {
     databaseName: cosmosDatabaseName
     containerName: cosmosContainerName
     disableLocalAuth: cosmosDisableLocalAuth
+  }
+}
+
+module serviceBus 'modules/servicebus.bicep' = {
+  name: 'servicebus-deploy'
+  params: {
+    namespaceName: serviceBusNamespaceName
+    location: location
+    tags: tags
+    skuName: serviceBusSkuName
+    queueName: serviceBusQueueName
   }
 }
 
@@ -239,6 +264,10 @@ output keyVaultUri string = keyVault.outputs.uri
 
 output storageAccountName string = storage.outputs.name
 output storageBlobEndpoint string = storage.outputs.blobEndpoint
+
+output serviceBusNamespaceName string = serviceBus.outputs.name
+output serviceBusFqdn string = serviceBus.outputs.fqdn
+output serviceBusQueueName string = serviceBus.outputs.queueName
 
 output logAnalyticsName string = monitoring.outputs.logAnalyticsName
 output appInsightsName string = monitoring.outputs.appInsightsName
