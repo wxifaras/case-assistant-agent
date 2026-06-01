@@ -1,1 +1,6 @@
 microsoft-teams-apps==2.0.12
+
+# Azure AI Foundry — Agents are exposed through the Projects client.
+azure-ai-projects>=1.0.0b10
+azure-identity>=1.19.0
+openai>=1.54.0
