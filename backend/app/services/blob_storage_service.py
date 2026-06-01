@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
+from azure.core.exceptions import ResourceNotFoundError
 from azure.identity.aio import DefaultAzureCredential
 from azure.storage.blob import BlobSasPermissions, generate_blob_sas
 from azure.storage.blob.aio import BlobServiceClient
@@ -92,7 +94,10 @@ class BlobStorageService:
             pass
 
         blob_client = container_client.get_blob_client(blob_name)
-        await blob_client.upload_blob(data, overwrite=overwrite, metadata=metadata)
+        if metadata is None:
+            await blob_client.upload_blob(data, overwrite=overwrite)
+        else:
+            await blob_client.upload_blob(data, overwrite=overwrite, metadata=metadata)
 
         return blob_client.url
 
@@ -128,7 +133,10 @@ class BlobStorageService:
             pass
 
         blob_client = container_client.get_blob_client(blob_name)
-        await blob_client.upload_blob(data, length=length, overwrite=overwrite, metadata=metadata)
+        if metadata is None:
+            await blob_client.upload_blob(data, length=length, overwrite=overwrite)
+        else:
+            await blob_client.upload_blob(data, length=length, overwrite=overwrite, metadata=metadata)
 
         return blob_client.url
 
@@ -250,3 +258,35 @@ class BlobStorageService:
             blob_names.append(blob.name)
 
         return blob_names
+
+    async def list_blob_items_with_metadata(self, container: str, prefix: str | None = None) -> list[dict[str, Any]]:
+        """List blobs with metadata for reconciliation operations."""
+        client = self._ensure_client()
+        container_client = client.get_container_client(container)
+        items: list[dict[str, Any]] = []
+
+        async for blob in container_client.list_blobs(name_starts_with=prefix, include=["metadata"]):
+            items.append({"name": blob.name, "metadata": dict(blob.metadata or {})})
+
+        return items
+
+    async def get_blob_metadata(self, container: str, blob_name: str) -> dict[str, str] | None:
+        """Fetch blob metadata, returning None when the blob does not exist."""
+        client = self._ensure_client()
+        container_client = client.get_container_client(container)
+        blob_client = container_client.get_blob_client(blob_name)
+
+        try:
+            properties = await blob_client.get_blob_properties()
+        except ResourceNotFoundError:
+            return None
+
+        return dict(properties.metadata or {})
+
+    async def set_blob_metadata(self, container: str, blob_name: str, metadata: dict[str, str]) -> None:
+        """Replace metadata for a blob if it exists."""
+        client = self._ensure_client()
+        container_client = client.get_container_client(container)
+        blob_client = container_client.get_blob_client(blob_name)
+
+        await blob_client.set_blob_metadata(metadata=metadata)

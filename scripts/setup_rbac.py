@@ -20,6 +20,8 @@ Roles assigned to the signed-in user:
   App Configuration     App Configuration Data Reader          AppConfig store
   Key Vault             Key Vault Secrets User                 Key Vault
   Application Insights  Log Analytics Reader                   App Insights resource
+  Service Bus           Azure Service Bus Data Sender          Service Bus queue
+  Service Bus           Azure Service Bus Data Receiver        Service Bus queue
 
 Roles assigned to the Search service managed identity:
 
@@ -39,14 +41,24 @@ Usage:
         --tenant-id   <tenant-id> \\
         --subscription <subscription-id-or-name> \\
         --resource-group <rg> \\
-        --cosmos-account <cosmos-account-name> \\
+        --principal-type User
+
+    # Grant elevated Microsoft Graph app permissions to a service principal
+    # for SharePoint sync (requires admin consent privileges):
+    python scripts/setup_rbac.py \
+        --resource-group <rg> \
+        --principal-id <service-principal-object-id> \
+        --principal-type ServicePrincipal \
+        --grant-sharepoint-app-permissions
         --storage-account <storage-account-name> \\
         --search-service <search-service-name> \\
         --ai-services-account <ai-services-account-name> \\
         --ai-multiservice-account <ai-multiservice-account-name> \\
         --app-config-store <appconfig-store-name> \\
         --key-vault <key-vault-name> \\
-        --app-insights <app-insights-component-name>
+        --app-insights <app-insights-component-name> \
+        --servicebus-namespace <servicebus-namespace-name> \
+        --servicebus-queue <servicebus-queue-name>
 
     # Grant roles to a different principal (managed identity, service principal,
     # another user, or a security group) instead of the signed-in user. The
@@ -74,6 +86,10 @@ Behaviour notes:
     which works for managed identities and service principals). Pass
     --principal-type User to target another Entra ID user, or Group for a
     security group.
+    - Optional: use --grant-sharepoint-app-permissions to add Microsoft Graph
+        application permissions (default: Sites.Read.All, Files.Read.All,
+        Group.Read.All, GroupMember.Read.All, User.Read.All) to the target
+        service principal app registration and attempt admin consent.
   - If the Azure CLI token is rejected by Conditional Access (CAE,
     TokenCreatedWithOutdatedPolicies, AADSTS50173, AADSTS700082), the script
     triggers an interactive ``az login`` and retries automatically.
@@ -81,6 +97,7 @@ Behaviour notes:
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from typing import Optional
@@ -92,6 +109,11 @@ from typing import Optional
 # Principal type used by az role assignment create --assignee-principal-type
 # when assigning by object ID. Set in main() based on --principal-type.
 _PRINCIPAL_TYPE = "ServicePrincipal"
+
+# Foundry roles were renamed (Azure AI User -> Foundry User).
+# Use role definition IDs to stay stable across rename rollouts.
+_FOUNDRY_USER_ROLE_ID = "53ca6127-db72-4b80-b1b0-d745d6d5456d"
+_GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"
 
 RESET = "\033[0m"
 CYAN = "\033[96m"
@@ -361,6 +383,7 @@ def _assign_arm_role(
     avoids "principal not found" errors that can occur with --assignee.
     """
     assignee_flag = "--assignee-object-id" if assignee_is_object_id else "--assignee"
+    role_for_assignment = _resolve_role_for_assignment(role)
 
     # Check if already assigned
     ok, existing = _run_json(
@@ -372,7 +395,7 @@ def _assign_arm_role(
             assignee_flag,
             principal_id,
             "--role",
-            role,
+            role_for_assignment,
             "--scope",
             scope,
             "--query",
@@ -393,7 +416,7 @@ def _assign_arm_role(
         assignee_flag,
         principal_id,
         "--role",
-        role,
+        role_for_assignment,
         "--scope",
         scope,
     ]
@@ -408,6 +431,24 @@ def _assign_arm_role(
         print_success(f"Assigned '{role}' on {resource_label}")
     else:
         print_error(f"Failed to assign '{role}' on {resource_label}: {result}")
+
+
+def _is_guid(value: str) -> bool:
+    return bool(re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", value))
+
+
+def _resolve_role_for_assignment(role: str) -> str:
+    """Resolve a role name to role definition ID to handle rename rollouts safely."""
+    if _is_guid(role):
+        return role
+
+    ok, definitions = _run_json(["az", "role", "definition", "list", "--name", role, "-o", "json"])
+    if ok and isinstance(definitions, list) and definitions:
+        role_id = definitions[0].get("name")
+        if isinstance(role_id, str) and _is_guid(role_id):
+            return role_id
+
+    return role
 
 
 _COSMOS_CUSTOM_ROLE_NAME = "CosmosDB-DataPlane-FullAccess"
@@ -694,9 +735,9 @@ def setup_ai_services(
         account_name,
         assignee_is_object_id=assignee_is_object_id,
     )
-    # Azure AI User — use Foundry agents and inference endpoints as an end user
+    # Foundry User (stable role ID) — use Foundry agents and inference endpoints
     _assign_arm_role(
-        "Azure AI User",
+        _FOUNDRY_USER_ROLE_ID,
         ai_id,
         principal_id,
         account_name,
@@ -1045,6 +1086,96 @@ def setup_key_vault(
         print(_c(CYAN, "  pointing to each secret. The SDK resolves them automatically at startup."))
 
 
+def setup_service_bus(
+    resource_group: str,
+    namespace_name: str,
+    queue_name: Optional[str],
+    principal_id: str,
+    assignee_is_object_id: bool = False,
+) -> None:
+    """Assign Service Bus data-plane roles for queue send/receive operations."""
+    label = f"Service Bus  [{namespace_name}]"
+    if queue_name:
+        label = f"Service Bus  [{namespace_name}/{queue_name}]"
+    print_section(label)
+
+    if not _resource_exists(
+        ["az", "servicebus", "namespace", "show", "--name", namespace_name, "--resource-group", resource_group],
+        f"Service Bus namespace '{namespace_name}'",
+    ):
+        return
+
+    ok, namespace = _run_json(
+        ["az", "servicebus", "namespace", "show", "--name", namespace_name, "--resource-group", resource_group]
+    )
+    if not ok or not isinstance(namespace, dict):
+        print_error(f"Could not retrieve Service Bus namespace '{namespace_name}'.")
+        return
+
+    scope = namespace.get("id", "")
+    resource_label = namespace_name
+
+    if queue_name:
+        if not _resource_exists(
+            [
+                "az",
+                "servicebus",
+                "queue",
+                "show",
+                "--namespace-name",
+                namespace_name,
+                "--name",
+                queue_name,
+                "--resource-group",
+                resource_group,
+            ],
+            f"Service Bus queue '{queue_name}'",
+        ):
+            return
+
+        ok, queue = _run_json(
+            [
+                "az",
+                "servicebus",
+                "queue",
+                "show",
+                "--namespace-name",
+                namespace_name,
+                "--name",
+                queue_name,
+                "--resource-group",
+                resource_group,
+            ]
+        )
+        if not ok or not isinstance(queue, dict):
+            print_error(f"Could not retrieve Service Bus queue '{queue_name}'.")
+            return
+
+        scope = queue.get("id", "")
+        resource_label = f"{namespace_name}/{queue_name}"
+
+    _assign_arm_role(
+        "Azure Service Bus Data Sender",
+        scope,
+        principal_id,
+        resource_label,
+        assignee_is_object_id=assignee_is_object_id,
+    )
+    _assign_arm_role(
+        "Azure Service Bus Data Receiver",
+        scope,
+        principal_id,
+        resource_label,
+        assignee_is_object_id=assignee_is_object_id,
+    )
+
+    print()
+    print(_c(YELLOW, "  Add to .env:"))
+    print(_c(WHITE, f"  SERVICEBUS_FQDN={namespace_name}.servicebus.windows.net"))
+    if queue_name:
+        print(_c(WHITE, f"  SERVICEBUS_QUEUE_NAME={queue_name}"))
+
+
 def setup_sharepoint_access(
     site_hostname: str,
     site_path: str,
@@ -1079,6 +1210,9 @@ def setup_sharepoint_access(
         print_detail("If running with an app identity, grant admin-consented Graph app permissions:")
         print_detail("- Sites.Read.All")
         print_detail("- Files.Read.All")
+        print_detail("- Group.Read.All")
+        print_detail("- GroupMember.Read.All")
+        print_detail("- User.Read.All")
         return
 
     site_id = site.get("id", "")
@@ -1121,6 +1255,107 @@ def setup_sharepoint_access(
         if entries:
             visible = ", ".join(sorted([(d.get("name") or "<unnamed>") for d in entries]))
             print_detail(f"Visible libraries: {visible}")
+
+
+def setup_sharepoint_app_permissions(
+    principal_id: str,
+    principal_type: str,
+    permission_values: list[str],
+) -> None:
+    """Grant Microsoft Graph *application* permissions for SharePoint sync.
+
+    This targets service principals only. It configures app permissions on the
+    associated app registration and then requests admin consent.
+    """
+    print_section("SharePoint / Graph App Permissions")
+
+    if principal_type != "ServicePrincipal":
+        print_skip("SharePoint app permissions (supported only for ServicePrincipal targets)")
+        return
+
+    ok, sp = _run_json(["az", "ad", "sp", "show", "--id", principal_id, "-o", "json"])
+    if not ok or not isinstance(sp, dict):
+        print_error(f"Could not resolve service principal '{principal_id}'")
+        if isinstance(sp, str) and sp:
+            print_detail(sp)
+        return
+
+    app_id = str(sp.get("appId") or "").strip()
+    if not app_id:
+        print_error("Service principal has no appId; cannot grant Graph app permissions.")
+        return
+
+    ok, graph_sp = _run_json(["az", "ad", "sp", "show", "--id", _GRAPH_APP_ID, "-o", "json"])
+    if not ok or not isinstance(graph_sp, dict):
+        print_error("Could not resolve Microsoft Graph service principal.")
+        if isinstance(graph_sp, str) and graph_sp:
+            print_detail(graph_sp)
+        return
+
+    app_roles = graph_sp.get("appRoles", [])
+    if not isinstance(app_roles, list):
+        app_roles = []
+
+    role_ids: list[tuple[str, str]] = []
+    for value in permission_values:
+        match = next(
+            (
+                role
+                for role in app_roles
+                if str(role.get("value") or "").strip().lower() == value.lower()
+                and "Application" in (role.get("allowedMemberTypes") or [])
+                and bool(role.get("isEnabled", True))
+            ),
+            None,
+        )
+        if not isinstance(match, dict):
+            print_warning(f"Microsoft Graph application permission '{value}' not found — skipping.")
+            continue
+        role_id = str(match.get("id") or "").strip()
+        if not role_id:
+            print_warning(f"Microsoft Graph application permission '{value}' has no role ID — skipping.")
+            continue
+        role_ids.append((value, role_id))
+
+    if not role_ids:
+        print_warning("No valid Microsoft Graph application permissions to assign.")
+        return
+
+    for value, role_id in role_ids:
+        ok, result = _run_json(
+            [
+                "az",
+                "ad",
+                "app",
+                "permission",
+                "add",
+                "--id",
+                app_id,
+                "--api",
+                _GRAPH_APP_ID,
+                "--api-permissions",
+                f"{role_id}=Role",
+            ]
+        )
+        if ok:
+            print_success(f"Added Microsoft Graph app permission '{value}'")
+            continue
+
+        message = str(result)
+        if "Permission entry already exists" in message or "already exists" in message.lower():
+            print_warning(f"Microsoft Graph app permission '{value}' already present")
+        else:
+            print_error(f"Failed to add Microsoft Graph app permission '{value}': {message}")
+
+    ok, consent_result = _run_json(["az", "ad", "app", "permission", "admin-consent", "--id", app_id])
+    if ok:
+        print_success("Admin consent granted for Microsoft Graph application permissions")
+    else:
+        print_warning("Could not grant admin consent automatically.")
+        if isinstance(consent_result, str) and consent_result:
+            print_detail(consent_result)
+        print_detail("Ask a Global Admin to run:")
+        print_detail(f"az ad app permission admin-consent --id {app_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -1198,6 +1433,16 @@ def build_parser() -> argparse.ArgumentParser:
         "Assigns 'Log Analytics Reader' for trace queries and cloud trace evaluation.",
     )
     parser.add_argument(
+        "--servicebus-namespace",
+        metavar="NAMESPACE_NAME",
+        help="Service Bus namespace name (optional). Assigns sender/receiver roles.",
+    )
+    parser.add_argument(
+        "--servicebus-queue",
+        metavar="QUEUE_NAME",
+        help="Service Bus queue name (optional). If set, scopes roles to this queue.",
+    )
+    parser.add_argument(
         "--sharepoint-site-hostname",
         metavar="HOSTNAME",
         help="SharePoint hostname for Graph validation (for example: contoso.sharepoint.com).",
@@ -1211,6 +1456,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--sharepoint-library-name",
         metavar="LIBRARY_NAME",
         help="Optional SharePoint document library display name to validate (for example: Documents).",
+    )
+    parser.add_argument(
+        "--grant-sharepoint-app-permissions",
+        action="store_true",
+        help="When targeting --principal-id as ServicePrincipal, grant elevated Microsoft Graph application permissions for SharePoint sync.",
+    )
+    parser.add_argument(
+        "--sharepoint-app-permissions",
+        default="Sites.Read.All,Files.Read.All,Group.Read.All,GroupMember.Read.All,User.Read.All",
+        help=(
+            "Comma-separated Microsoft Graph application permissions to grant "
+            "(default: Sites.Read.All,Files.Read.All,Group.Read.All,GroupMember.Read.All,User.Read.All)."
+        ),
     )
     parser.add_argument(
         "--principal-id",
@@ -1284,6 +1542,11 @@ def main() -> None:
     )
     key_vault = _prompt_if_missing(args.key_vault, "Key Vault name")
     app_insights = _prompt_if_missing(args.app_insights, "Application Insights component name")
+    servicebus_namespace = _prompt_if_missing(args.servicebus_namespace, "Service Bus namespace name")
+    servicebus_queue = _prompt_if_missing(
+        args.servicebus_queue,
+        "Service Bus queue name (optional; leave blank to scope at namespace)",
+    )
     sharepoint_site_hostname = _prompt_if_missing(
         args.sharepoint_site_hostname, "SharePoint site hostname (for Graph access validation)"
     )
@@ -1351,6 +1614,27 @@ def main() -> None:
         setup_app_insights(resource_group, app_insights, principal_id, assignee_is_object_id)
     else:
         print_skip("Application Insights")
+
+    if servicebus_namespace:
+        setup_service_bus(
+            resource_group=resource_group,
+            namespace_name=servicebus_namespace,
+            queue_name=servicebus_queue,
+            principal_id=principal_id,
+            assignee_is_object_id=assignee_is_object_id,
+        )
+    else:
+        print_skip("Service Bus")
+
+    if args.grant_sharepoint_app_permissions:
+        requested_permissions = [p.strip() for p in (args.sharepoint_app_permissions or "").split(",") if p.strip()]
+        setup_sharepoint_app_permissions(
+            principal_id=principal_id,
+            principal_type=args.principal_type,
+            permission_values=requested_permissions,
+        )
+    else:
+        print_skip("SharePoint / Graph App Permissions")
 
     # SharePoint/Graph access check applies to local user workflow only.
     # When --principal-id is provided, the target identity may not be interactive,

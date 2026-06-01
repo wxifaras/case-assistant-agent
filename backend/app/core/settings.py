@@ -131,6 +131,7 @@ class CosmosDBSettings(AppConfigAwareSettings):
     )
     database_name: str = Field(default="agentic_rag", description="Database name")
     container_name: str = Field(default="conversations", description="Container name for conversations")
+    sites_container_name: str = Field(default="sites", description="Container name for SharePoint site sync state")
     enable_ttl: bool = Field(default=True, description="Enable time-to-live for conversations")
     default_ttl_days: int = Field(default=30, description="Default TTL in days")
 
@@ -287,11 +288,6 @@ class SharePointSettings(AppConfigAwareSettings):
         default=None,
         description="Optional default destination blob container (falls back to BLOBSTORAGE_CONTAINER_NAME)",
     )
-    max_files_per_run: int = Field(
-        default=500,
-        ge=1,
-        description="Hard cap on number of files processed per sync request",
-    )
     request_timeout_seconds: float = Field(
         default=60.0,
         gt=0,
@@ -302,6 +298,24 @@ class SharePointSettings(AppConfigAwareSettings):
         ge=64 * 1024,
         description="Chunk size for streamed SharePoint download/upload transfer",
     )
+
+
+class ServiceBusSettings(AppConfigAwareSettings):
+    """Azure Service Bus settings for queue producer/consumer flows."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="SERVICEBUS_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    connection_string: str | None = Field(default=None, description="Service Bus connection string (optional)")
+    fqdn: str | None = Field(default=None, description="Service Bus namespace FQDN")
+    queue_name: str | None = Field(default=None, description="Queue name for SharePoint sync requests")
+    managed_identity_client_id: str | None = Field(
+        default=None,
+        description="Optional user-assigned managed identity client id",
+    )
+    receiver_retry_seconds: float = Field(default=5.0, gt=0, description="Retry delay for receiver loop errors")
+    max_delivery_attempts: int = Field(default=5, ge=1, description="Max attempts before dead-lettering a message")
 
 
 class APISettings(AppConfigAwareSettings):
@@ -358,10 +372,16 @@ class Settings(AppConfigAwareSettings):
     pii_detection: PIIDetectionSettings = Field(default_factory=lambda: PIIDetectionSettings())  # type: ignore[call-arg]
     foundry_agent: FoundryAgentSettings = Field(default_factory=lambda: FoundryAgentSettings())  # type: ignore[call-arg]
     sharepoint: SharePointSettings = Field(default_factory=lambda: SharePointSettings())  # type: ignore[call-arg]
+    service_bus: ServiceBusSettings = Field(default_factory=lambda: ServiceBusSettings())  # type: ignore[call-arg]
 
     # Application Settings
     environment: str = Field(default="development", description="Environment: development, staging, production")
     use_managed_identity: bool = Field(default=False, description="Use Azure Managed Identity for authentication")
+    azure_tenant_id: str | None = Field(default=None, description="Optional tenant id for service principal auth")
+    azure_client_id: str | None = Field(default=None, description="Optional client id for service principal auth")
+    azure_client_secret: str | None = Field(
+        default=None, description="Optional client secret for service principal auth"
+    )
     api: APISettings = Field(default_factory=APISettings)
 
     model_config = SettingsConfigDict(
@@ -442,6 +462,7 @@ class Settings(AppConfigAwareSettings):
             connection_string=self.cosmos_db.connection_string,
             database_name=self.cosmos_db.database_name,
             container_name=self.cosmos_db.container_name,
+            sites_container_name=self.cosmos_db.sites_container_name,
             enable_ttl=self.cosmos_db.enable_ttl,
             default_ttl_days=self.cosmos_db.default_ttl_days,
         )

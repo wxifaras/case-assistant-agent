@@ -1,11 +1,13 @@
 # FastAPI Application
 fastapi==0.128.0
 uvicorn[standard]==0.40.0
+azure-functions==1.24.0
 
 # Azure Core Dependencies
 azure-search-documents==11.7.0b2  # Pre-release required for AIServicesAccountIdentity
 azure-storage-blob==12.28.0
 azure-identity==1.25.1
+azure-servicebus==7.14.3
 azure-cosmos==4.14.5
 azure-keyvault-secrets==4.10.0
 

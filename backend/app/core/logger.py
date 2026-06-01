@@ -65,12 +65,16 @@ class Logger:
         if cls._app_insights_configured:
             return
 
-        # Configure console logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            force=True,  # Override any existing configuration.
-        )
+        # Configure console logging only when no handlers are present.
+        # Avoid overriding Uvicorn's logging setup during local dev.
+        root_logger = logging.getLogger()
+        if not root_logger.handlers:
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            )
+        else:
+            root_logger.setLevel(logging.INFO)
         # Configure Application Insights if connection string is available
         conn_str = os.getenv("APPINSIGHTS_CONNECTION_STRING")
         if conn_str:
@@ -96,14 +100,14 @@ class Logger:
                     enable_sensitive_data=os.getenv("ENABLE_SENSITIVE_DATA", "false").lower() == "true"
                 )
 
-                logging.getLogger(__name__).info("✓ Application Insights OpenTelemetry configured successfully")
+                logging.getLogger(__name__).info("Application Insights OpenTelemetry configured successfully")
 
             except Exception as e:
-                logging.getLogger(__name__).error(f"✗ Failed to configure Application Insights: {str(e)}")
+                logging.getLogger(__name__).error(f"Failed to configure Application Insights: {str(e)}")
                 logging.getLogger(__name__).warning("Continuing without Application Insights telemetry")
         else:
             logging.getLogger(__name__).warning(
-                "⚠ APPINSIGHTS_CONNECTION_STRING not set - "
+                "APPINSIGHTS_CONNECTION_STRING not set - "
                 "Application Insights telemetry disabled (console logging only)"
             )
 

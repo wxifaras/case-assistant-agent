@@ -33,6 +33,32 @@
             },
             "console": "integratedTerminal",
             "justMyCode": false
+        },
+        {
+            "name": "Functions: Run SharePoint Scheduler (debugpy)",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "Set-Location '${workspaceFolder}\\backend\\functions\\sharepoint_sync_scheduler'; $env:languageWorkers__python__defaultExecutablePath='${workspaceFolder}\\backend\\functions\\sharepoint_sync_scheduler\\.venv\\Scripts\\python.exe'; $env:languageWorkers__python__arguments='-m debugpy --listen 5678 --wait-for-client'; func host start"
+        },
+        {
+            "name": "Python: Attach SharePoint Scheduler (debugpy)",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "justMyCode": true
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Functions: Run + Attach SharePoint Scheduler",
+            "configurations": [
+                "Functions: Run SharePoint Scheduler (debugpy)",
+                "Python: Attach SharePoint Scheduler (debugpy)"
+            ],
+            "stopAll": true
         }
     ]
 }

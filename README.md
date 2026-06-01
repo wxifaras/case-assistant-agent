@@ -11,6 +11,8 @@ Case Assistant Agent is an Azure-based, agentic RAG application with:
 * A React simple chat frontend for local developer testing
 * A Teams bot frontend for Microsoft 365 integration scenarios
 * An Azure AI Search ingestion pipeline that processes blob content into a vector-enabled index
+* A SharePoint delta-sync pipeline with scheduled queue-based execution
+* A Service Bus queue worker that runs SharePoint sync jobs and conditionally triggers indexers
 * Cosmos DB chat history storage with hierarchical partition keys
 * Optional Azure AI Foundry prompt-agent deployment and runtime invocation path
 
@@ -54,6 +56,7 @@ At minimum, set values for:
 * `BLOBSTORAGE_RESOURCE_ID` or `BLOBSTORAGE_CONNECTION_STRING`
 * `AZURE_OPENAI_ENDPOINT`
 * `COSMOS_ENDPOINT` or `COSMOS_CONNECTION_STRING`
+* `SERVICEBUS_QUEUE_NAME` plus either `SERVICEBUS_CONNECTION_STRING` or `SERVICEBUS_FQDN`
 
 ### 3) Create virtual environment and install backend dependencies
 
@@ -143,6 +146,12 @@ Routes are mounted under `/api`.
   * `POST /api/pipeline/setup-pipeline`
   * `POST /api/pipeline/run-indexer`
   * `GET /api/pipeline/indexer-status`
+* SharePoint sites and sync
+  * `GET /api/sharepoint/sites`
+  * `GET /api/sharepoint/sites/member-of`
+  * `GET /api/sharepoint/sites/members`
+  * `POST /api/sharepoint/sites/sync-site`
+  * `POST /api/sharepoint/sites/sync`
 
 ## Ingestion Pipeline
 
@@ -158,6 +167,56 @@ Core flow:
 * Search index with vector and semantic configuration
 * Skillsets for extraction, chunking, embeddings, and multimodal enrichment
 * Indexers that project enriched content into the search index
+
+## SharePoint Delta Sync and Scheduling
+
+SharePoint sync now uses delta tracking and queue-based orchestration.
+
+Core behavior:
+
+* Detects per-file changes as `added`, `updated`, `unchanged`, and `deleted`
+* Uploads only changed files to Blob Storage and updates sync state in Cosmos DB
+* Schedules per-site sync requests through Service Bus
+* Processes queued sync requests in the backend worker
+* Runs search indexers only when sync detects changes
+
+Indexer trigger policy in queue worker:
+
+* Runs indexer when `added + updated + deleted > 0`
+* Skips indexer when no changes are detected, including all-unchanged or zero-discovery runs
+
+### Scheduler Function App
+
+The scheduler Function App is in `backend/functions/sharepoint_sync_scheduler`.
+
+It exposes:
+
+* Timer trigger `ScheduleSharePointSync` using `SHAREPOINT_SYNC_SCHEDULE`
+* HTTP trigger `POST /api/schedule/sharepoint-sync` for on-demand queueing
+
+Required scheduler settings:
+
+* `SHAREPOINT_SYNC_SCHEDULE`
+* `SYNC_DEFAULT_TENANT_ID`
+* `SYNC_API_BASE_URL`
+* `SYNC_API_SITES_PATH`
+* `SERVICEBUS_QUEUE_NAME`
+* `SERVICEBUS_CONNECTION_STRING` or `SERVICEBUS_FQDN`
+
+Run the scheduler locally:
+
+```powershell
+Set-Location backend/functions/sharepoint_sync_scheduler
+py -3.14 -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+func host start --port 7072
+```
+
+Trigger a manual scheduler run:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:7072/api/schedule/sharepoint-sync" -ContentType "application/json" -Body "{}"
+```
 
 ## Foundry Prompt Agent
 

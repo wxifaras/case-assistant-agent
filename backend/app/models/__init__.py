@@ -27,6 +27,7 @@ from app.models.config_options import (
     SearchServiceOptions,
     WorkflowOptions,
 )
+from app.models.sharepoint import SharePointFileSyncStateItem, SharePointSiteItem, SharePointSiteMemberItem
 
 __all__ = [
     "AIServicesOptions",
@@ -47,4 +48,7 @@ __all__ = [
     "ChatHistoryItem",
     "GeneratedAnswer",
     "AgenticRAGState",
+    "SharePointSiteItem",
+    "SharePointSiteMemberItem",
+    "SharePointFileSyncStateItem",
 ]

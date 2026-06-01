@@ -16,9 +16,9 @@ from fastapi import Depends
 from app.core.container import Container
 from app.core.logger import Logger
 from app.core.settings import Settings
-from app.ingestion.indexer_service import IIndexerService
-from app.ingestion.search_pipeline_orchestrator import ISearchPipelineOrchestrator
-from app.ingestion.sharepoint_sync_service import ISharePointSyncService
+from app.ingestion.search.indexer_service import IIndexerService
+from app.ingestion.search.search_pipeline_orchestrator import ISearchPipelineOrchestrator
+from app.ingestion.sharepoint.sharepoint_sync_service import ISharePointSyncService
 from app.services.chat_history_service import IChatHistoryService
 from app.services.chat_service import IChatService
 from app.services.pii_detection_service import IPIIDetectionService

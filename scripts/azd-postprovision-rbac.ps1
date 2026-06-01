@@ -29,7 +29,9 @@ $commonArgs = @(
     '--ai-services-account',    $env:FOUNDRYNAME,
     '--ai-multiservice-account', $env:AISERVICESNAME,
     '--key-vault',              $env:KEYVAULTNAME,
-    '--app-insights',           $env:APPINSIGHTSNAME
+    '--app-insights',           $env:APPINSIGHTSNAME,
+    '--servicebus-namespace',   $env:SERVICEBUSNAMESPACENAME,
+    '--servicebus-queue',       $env:SERVICEBUSQUEUENAME
 )
 
 # 1. Grant roles to the signed-in user (required for local dev with DefaultAzureCredential).

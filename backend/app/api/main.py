@@ -20,6 +20,7 @@ API Documentation:
     - OpenAPI JSON: http://localhost:8000/openapi.json
 """
 
+import hashlib
 import os
 from contextlib import asynccontextmanager
 
@@ -28,7 +29,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
-from app.api.routes import chat, health, pipeline
+from app.api.routes import chat, health, pipeline, sharepoint
 from app.core.container import Container
 
 try:
@@ -134,9 +135,52 @@ async def _ensure_cosmos_resources() -> None:
         )
         logger.info(f"[Cosmos] Container ready: {cosmos_options.container_name} (pk=[/user_id, /session_id] HPK)")
 
+        # Sites sync-state container with HPK optimized for tenant/site/doc type lookups.
+        sites_hpk = PartitionKey(path=["/tenant_id", "/site_id", "/doc_type"], kind="MultiHash", version=2)
+        await db.create_container_if_not_exists(
+            id=cosmos_options.sites_container_name,
+            partition_key=sites_hpk,
+        )
+        logger.info(
+            f"[Cosmos] Container ready: {cosmos_options.sites_container_name} (pk=[/tenant_id, /site_id, /doc_type] HPK)"
+        )
+
     except Exception as e:
         logger.error(f"Failed to provision Cosmos DB resources: {e}")
         raise
+
+
+def _configure_and_log_azure_identity_env(settings) -> None:
+    """Apply AZURE_* defaults from settings and log masked credential diagnostics."""
+
+    if settings.azure_tenant_id:
+        os.environ.setdefault("AZURE_TENANT_ID", settings.azure_tenant_id)
+    if settings.azure_client_id:
+        os.environ.setdefault("AZURE_CLIENT_ID", settings.azure_client_id)
+    if settings.azure_client_secret:
+        os.environ.setdefault("AZURE_CLIENT_SECRET", settings.azure_client_secret)
+
+    settings_secret = settings.azure_client_secret or ""
+    env_secret = os.getenv("AZURE_CLIENT_SECRET") or ""
+
+    def _secret_proof(value: str) -> str:
+        if not value:
+            return "<empty>"
+        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+        return f"<set:{len(value)} chars sha256:{digest}>"
+
+    logger.info(
+        "  Azure credential settings values: "
+        f"tenant_id='{settings.azure_tenant_id or '<empty>'}' "
+        f"client_id='{settings.azure_client_id or '<empty>'}' "
+        f"client_secret={_secret_proof(settings_secret)}"
+    )
+    logger.info(
+        "  Azure credential env values: "
+        f"AZURE_TENANT_ID='{os.getenv('AZURE_TENANT_ID') or '<empty>'}' "
+        f"AZURE_CLIENT_ID='{os.getenv('AZURE_CLIENT_ID') or '<empty>'}' "
+        f"AZURE_CLIENT_SECRET={_secret_proof(env_secret)}"
+    )
 
 
 @asynccontextmanager
@@ -146,11 +190,14 @@ async def lifespan(app: FastAPI):
     Args:
         app: FastAPI application instance.
     """
+    queue_worker = container.sharepoint_sync_queue_worker()
+
     # Startup
     logger.info("Agentic Case Assistant API starting up...")
     try:
         # Verify settings can be loaded
         settings = container.config()
+        _configure_and_log_azure_identity_env(settings)
         logger.info("Configuration loaded successfully:")
         logger.info(f"  Environment: {os.getenv('ENVIRONMENT', 'development')}")
         logger.info(f"  Search Service: {settings.search_service.endpoint}")
@@ -170,12 +217,30 @@ async def lifespan(app: FastAPI):
         # Activate Foundry agent tracing (AIProjectInstrumentor)
         await _configure_foundry_telemetry()
 
+        # Start background queue consumer for scheduled SharePoint sync jobs.
+        await queue_worker.start()
+
     except Exception as e:
         logger.error(f"Failed to initialize application: {e}")
         raise
 
-    yield
-    # Shutdown`r`n    logger.info("Agentic Case Assistant API shutting down...")`r`n`r`n    # Close long-lived async clients owned by singleton services.`r`n    try:`r`n        pii_service = container.pii_detection_service()`r`n        await pii_service.close()`r`n    except Exception as e:`r`n        logger.warning(f"PII detection service cleanup failed: {e}")
+    try:
+        yield
+    finally:
+        # Shutdown
+        logger.info("Agentic Case Assistant API shutting down...")
+
+        try:
+            await queue_worker.stop()
+        except Exception as e:
+            logger.warning(f"SharePoint queue worker cleanup failed: {e}")
+
+        # Close long-lived async clients owned by singleton services.
+        try:
+            pii_service = container.pii_detection_service()
+            await pii_service.close()
+        except Exception as e:
+            logger.warning(f"PII detection service cleanup failed: {e}")
 
 
 def create_app() -> FastAPI:
@@ -207,6 +272,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router, prefix="/api")
     app.include_router(pipeline.router, prefix="/api")
     app.include_router(chat.router, prefix="/api")
+    app.include_router(sharepoint.router, prefix="/api")
 
     # Redirect root to docs
     @app.get("/", include_in_schema=False)

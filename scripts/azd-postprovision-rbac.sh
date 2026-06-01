@@ -35,6 +35,8 @@ run_setup() {
         --ai-multiservice-account "$AISERVICESNAME" \
         --key-vault              "$KEYVAULTNAME" \
         --app-insights           "$APPINSIGHTSNAME" \
+        --servicebus-namespace   "$SERVICEBUSNAMESPACENAME" \
+        --servicebus-queue       "$SERVICEBUSQUEUENAME" \
         "$@"
 }
 

@@ -32,7 +32,9 @@ env/
 .env.local
 backend/.env
 backend/tests/.env.test
+backend/tests/api-tests.local.http
 .azure/
+**/local.settings.json
 
 # pytest
 .pytest_cache/
@@ -68,8 +70,16 @@ Thumbs.db
 # Docker
 *.log
 
+# Azurite (local Azure Storage emulator)
+.azurite/
+**/.azurite/
+__azurite_db*__.json
+__blobstorage__
+__queuestorage__
+
 # Frontend
 node_modules/
 **/node_modules/
 dist/
 .vite/
+AzuriteConfig

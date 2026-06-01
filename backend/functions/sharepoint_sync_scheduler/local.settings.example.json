@@ -1,0 +1,11 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "SERVICEBUS_QUEUE_NAME": "sharepoint-sync-requests",
+    "SERVICEBUS_FQDN": "<namespace>.servicebus.windows.net",
+    "SYNC_DEFAULT_TENANT_ID": "default",
+    "SHAREPOINT_SYNC_SCHEDULE": "0 */30 * * * *"
+  }
+}

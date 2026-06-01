@@ -31,6 +31,34 @@
             "problemMatcher": []
         },
         {
+            "label": "Functions: Create venv (Python 3.14)",
+            "type": "shell",
+            "windows": {
+                "command": "if (-not (Test-Path '${workspaceFolder}\\backend\\functions\\sharepoint_sync_scheduler\\.venv\\Scripts\\python.exe')) { py -3.14 -m venv \"${workspaceFolder}\\backend\\functions\\sharepoint_sync_scheduler\\.venv\" } else { Write-Host 'Functions .venv already exists; leaving in place.' }"
+            },
+            "osx": {
+                "command": "[ -x ${workspaceFolder}/backend/functions/sharepoint_sync_scheduler/.venv/bin/python ] && echo 'Functions .venv already exists; leaving in place.' || python3.14 -m venv ${workspaceFolder}/backend/functions/sharepoint_sync_scheduler/.venv"
+            },
+            "linux": {
+                "command": "[ -x ${workspaceFolder}/backend/functions/sharepoint_sync_scheduler/.venv/bin/python ] && echo 'Functions .venv already exists; leaving in place.' || python3.14 -m venv ${workspaceFolder}/backend/functions/sharepoint_sync_scheduler/.venv"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Functions: Install Dependencies",
+            "type": "shell",
+            "windows": {
+                "command": "Set-Location '${workspaceFolder}\\backend\\functions\\sharepoint_sync_scheduler'; & '${workspaceFolder}\\backend\\functions\\sharepoint_sync_scheduler\\.venv\\Scripts\\python.exe' -m pip install -r requirements.txt"
+            },
+            "osx": {
+                "command": "cd ${workspaceFolder}/backend/functions/sharepoint_sync_scheduler && ${workspaceFolder}/backend/functions/sharepoint_sync_scheduler/.venv/bin/python -m pip install -r requirements.txt"
+            },
+            "linux": {
+                "command": "cd ${workspaceFolder}/backend/functions/sharepoint_sync_scheduler && ${workspaceFolder}/backend/functions/sharepoint_sync_scheduler/.venv/bin/python -m pip install -r requirements.txt"
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "FastAPI: Run Dev Server",
             "type": "shell",
             "windows": {
@@ -218,6 +246,64 @@
 				"cwd": "${workspaceFolder}/frontend/teams-bot"
 			},
 			"problemMatcher": []
+        },
+        {
+            "label": "Functions: Run SharePoint Scheduler",
+            "type": "shell",
+            "windows": {
+                "command": "Set-Location '${workspaceFolder}\\backend\\functions\\sharepoint_sync_scheduler'; $env:languageWorkers__python__defaultExecutablePath='${workspaceFolder}\\backend\\functions\\sharepoint_sync_scheduler\\.venv\\Scripts\\python.exe'; func host start"
+            },
+            "osx": {
+                "command": "cd ${workspaceFolder}/backend/functions/sharepoint_sync_scheduler && export languageWorkers__python__defaultExecutablePath='${workspaceFolder}/backend/functions/sharepoint_sync_scheduler/.venv/bin/python' && func host start"
+            },
+            "linux": {
+                "command": "cd ${workspaceFolder}/backend/functions/sharepoint_sync_scheduler && export languageWorkers__python__defaultExecutablePath='${workspaceFolder}/backend/functions/sharepoint_sync_scheduler/.venv/bin/python' && func host start"
+            },
+            "dependsOn": [
+                "Functions: Create venv (Python 3.14)",
+                "Functions: Install Dependencies"
+            ],
+            "dependsOrder": "sequence",
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^.*$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": ".*Azure Functions Core Tools.*|.*Worker process started and initialized.*",
+                    "endsPattern": ".*Host started.*"
+                }
+            }
+        },
+        {
+            "label": "Functions: Run SharePoint Scheduler (debugpy)",
+            "type": "shell",
+            "windows": {
+                "command": "Set-Location '${workspaceFolder}\\backend\\functions\\sharepoint_sync_scheduler'; $env:languageWorkers__python__defaultExecutablePath='${workspaceFolder}\\backend\\functions\\sharepoint_sync_scheduler\\.venv\\Scripts\\python.exe'; $env:languageWorkers__python__arguments='-m debugpy --listen 5678 --wait-for-client'; func host start"
+            },
+            "osx": {
+                "command": "cd ${workspaceFolder}/backend/functions/sharepoint_sync_scheduler && export languageWorkers__python__defaultExecutablePath='${workspaceFolder}/backend/functions/sharepoint_sync_scheduler/.venv/bin/python' && export languageWorkers__python__arguments='-m debugpy --listen 5678 --wait-for-client' && func host start"
+            },
+            "linux": {
+                "command": "cd ${workspaceFolder}/backend/functions/sharepoint_sync_scheduler && export languageWorkers__python__defaultExecutablePath='${workspaceFolder}/backend/functions/sharepoint_sync_scheduler/.venv/bin/python' && export languageWorkers__python__arguments='-m debugpy --listen 5678 --wait-for-client' && func host start"
+            },
+            "dependsOn": [
+                "Functions: Create venv (Python 3.14)",
+                "Functions: Install Dependencies"
+            ],
+            "dependsOrder": "sequence",
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^.*$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": ".*Azure Functions Core Tools.*|.*Worker process started and initialized.*",
+                    "endsPattern": ".*Host started.*"
+                }
+            }
 		}
     ]
 }
