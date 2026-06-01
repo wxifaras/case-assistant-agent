@@ -551,9 +551,17 @@ class KnowledgeSourceOptions(BaseModel):
         ..., min_length=1, description="Existing Azure AI Search index that backs this knowledge source"
     )
     description: str | None = Field(default=None, description="Optional human-readable description")
-    source_data_select: list[str] = Field(
+    source_data_fields: list[str] = Field(
         default_factory=list,
-        description="Optional list of source fields the knowledge source is allowed to surface (passthrough)",
+        description="Fields surfaced as citation metadata on retrieved references (KS searchIndexParameters.sourceDataFields).",
+    )
+    search_fields: list[str] = Field(
+        default_factory=list,
+        description="Restrict which index fields are searched (KS searchIndexParameters.searchFields). Empty = search all default searchable fields.",
+    )
+    semantic_configuration_name: str | None = Field(
+        default=None,
+        description="Override the index's default semantic configuration (KS searchIndexParameters.semanticConfigurationName).",
     )
 
     model_config = {
@@ -603,7 +611,7 @@ class KnowledgeBaseOptions(BaseModel):
         description="Prompt passed to the LLM during query planning (KB retrievalInstructions).",
     )
     retrieval_reasoning_effort: Literal["minimal", "low", "medium"] = Field(
-        default="low",
+        default="medium",
         description="LLM reasoning effort for query planning (KB retrievalReasoningEffort.kind).",
     )
 

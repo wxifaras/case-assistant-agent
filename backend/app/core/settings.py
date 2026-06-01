@@ -373,6 +373,10 @@ class KnowledgeBaseSettings(AppConfigAwareSettings):
         env_prefix="SEARCH_KB_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
+    api_version: str = Field(
+        default="2025-11-01-preview",
+        description="Azure AI Search data-plane API version used for KB/KS provisioning and MCP endpoint (SEARCH_KB_API_VERSION).",
+    )
     description: str | None = Field(
         default=(
             "Knowledge base for retrieving and ranking high-signal SharePoint case "
@@ -447,8 +451,23 @@ class KnowledgeBaseSettings(AppConfigAwareSettings):
         ),
         description="Optional knowledge source description",
     )
-    ks_source_data_select: str = Field(
-        default="", description="Comma-separated list of source fields to surface (optional)"
+    ks_source_data_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "JSON array of index field names surfaced as citation metadata on references "
+            "(KS sourceDataFields). Example: '[\"content_id\",\"document_title\"]'."
+        ),
+    )
+    ks_search_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "JSON array of index field names restricting which fields are searched "
+            "(KS searchFields). Example: '[\"content_text\",\"document_title\"]'."
+        ),
+    )
+    ks_semantic_configuration_name: str | None = Field(
+        default=None,
+        description="Override the index's default semantic configuration (KS semanticConfigurationName).",
     )
 
 
@@ -669,15 +688,14 @@ class Settings(AppConfigAwareSettings):
         index_name = kb.ks_index_name or self.search_service.index_name
         aoai_endpoint = (kb.aoai_endpoint or self.azure_openai.endpoint or "").rstrip("/")
         aoai_deployment = kb.aoai_deployment_name or self.azure_openai.deployment_name
-        source_data_select = [
-            item.strip() for item in (kb.ks_source_data_select or "").split(",") if item.strip()
-        ]
         sources = [
             KnowledgeSourceOptions(
                 name=KS_NAME,
                 index_name=index_name,
                 description=kb.ks_description,
-                source_data_select=source_data_select,
+                source_data_fields=list(kb.ks_source_data_fields),
+                search_fields=list(kb.ks_search_fields),
+                semantic_configuration_name=kb.ks_semantic_configuration_name,
             )
         ]
         return KnowledgeBaseOptions(

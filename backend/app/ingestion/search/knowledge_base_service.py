@@ -1,14 +1,16 @@
-"""Azure AI Search Knowledge Source + Knowledge Agent ("Knowledge Base") provisioning.
+"""Azure AI Search Knowledge Source + Knowledge Base provisioning.
 
-Uses the Azure AI Search REST preview API (``2025-08-01-preview``) because the
-typed Python SDK on PyPI does not yet expose knowledge-source / knowledge-agent
-models. Authentication uses ``DefaultAzureCredential`` against the
-``https://search.azure.com/.default`` scope.
+Uses the Azure AI Search REST preview API (``2025-11-01-preview``) which
+renamed the legacy ``/agents`` route to ``/knowledgebases('{name}')`` and
+promoted ``retrievalReasoningEffort`` and ``outputMode`` to top-level
+resource properties on the KnowledgeBase. Authentication uses
+``DefaultAzureCredential`` against the ``https://search.azure.com/.default``
+scope.
 
 RBAC requirements on the Search service for the caller running provisioning:
-    * Search Service Contributor  (PUT/DELETE knowledgeSources, agents)
+    * Search Service Contributor  (PUT/DELETE knowledgeSources, knowledgebases)
 RBAC requirements on the AOAI/Foundry account for the Search service identity
-(so the knowledge agent can call the model with AAD):
+(so the knowledge base can call the model with AAD):
     * Cognitive Services OpenAI User
 """
 
@@ -25,7 +27,7 @@ from azure.identity.aio import DefaultAzureCredential
 from app.models.config_options import KnowledgeBaseOptions, KnowledgeSourceOptions
 
 _SEARCH_SCOPE = "https://search.azure.com/.default"
-_DEFAULT_API_VERSION = "2025-08-01-preview"
+_DEFAULT_API_VERSION = "2025-11-01-preview"
 
 logger = logging.getLogger(__name__)
 
@@ -113,23 +115,23 @@ class KnowledgeBaseService(IKnowledgeBaseService):
             await self.create_or_update_knowledge_source_async(source)
 
         body = self._build_kb_body(kb)
-        url = self._url(f"agents/{kb.name}")
+        url = self._url(f"knowledgebases('{kb.name}')")
         headers = await self._headers()
         resp = await self._http.put(url, headers=headers, json=body)
         if resp.status_code >= 400:
             raise RuntimeError(
-                f"Failed to PUT knowledge agent '{kb.name}': {resp.status_code} {resp.text}"
+                f"Failed to PUT knowledge base '{kb.name}': {resp.status_code} {resp.text}"
             )
         logger.info("Knowledge base '%s' upserted (HTTP %s)", kb.name, resp.status_code)
 
     async def delete_knowledge_base_async(self, name: str) -> None:
-        url = self._url(f"agents/{name}")
+        url = self._url(f"knowledgebases('{name}')")
         headers = await self._headers()
         resp = await self._http.delete(url, headers=headers)
         if resp.status_code in (200, 204, 404):
             logger.info("Knowledge base '%s' delete -> HTTP %s", name, resp.status_code)
             return
-        raise RuntimeError(f"Failed to DELETE knowledge agent '{name}': {resp.status_code} {resp.text}")
+        raise RuntimeError(f"Failed to DELETE knowledge base '{name}': {resp.status_code} {resp.text}")
 
     async def delete_knowledge_source_async(self, name: str) -> None:
         url = self._url(f"knowledgeSources/{name}")
@@ -141,13 +143,13 @@ class KnowledgeBaseService(IKnowledgeBaseService):
         raise RuntimeError(f"Failed to DELETE knowledge source '{name}': {resp.status_code} {resp.text}")
 
     async def get_knowledge_base_async(self, name: str) -> dict[str, Any] | None:
-        url = self._url(f"agents/{name}")
+        url = self._url(f"knowledgebases('{name}')")
         headers = await self._headers()
         resp = await self._http.get(url, headers=headers)
         if resp.status_code == 404:
             return None
         if resp.status_code >= 400:
-            raise RuntimeError(f"Failed to GET knowledge agent '{name}': {resp.status_code} {resp.text}")
+            raise RuntimeError(f"Failed to GET knowledge base '{name}': {resp.status_code} {resp.text}")
         return resp.json()
 
     # ------------------------------------------------------------------
@@ -155,22 +157,39 @@ class KnowledgeBaseService(IKnowledgeBaseService):
     # ------------------------------------------------------------------
 
     def _build_source_body(self, source: KnowledgeSourceOptions) -> dict[str, Any]:
+        # Schema: SearchIndexKnowledgeSourceParameters (api-version 2025-11-01-preview).
+        # Fields surfaced as citation metadata use sourceDataFields; fields restricting
+        # which index fields are searched use searchFields. Both are arrays of
+        # SearchIndexFieldReference ({"name": "..."}). semanticConfigurationName
+        # overrides the index's default semantic config.
+        params: dict[str, Any] = {"searchIndexName": source.index_name}
+        if source.source_data_fields:
+            params["sourceDataFields"] = [{"name": f} for f in source.source_data_fields]
+        if source.search_fields:
+            params["searchFields"] = [{"name": f} for f in source.search_fields]
+        if source.semantic_configuration_name:
+            params["semanticConfigurationName"] = source.semantic_configuration_name
         body: dict[str, Any] = {
             "name": source.name,
             "kind": source.kind,
-            "searchIndexParameters": {
-                "searchIndexName": source.index_name,
-            },
+            "searchIndexParameters": params,
         }
         if source.description:
             body["description"] = source.description
-        if source.source_data_select:
-            body["searchIndexParameters"]["sourceDataSelect"] = ",".join(source.source_data_select)
         return body
 
     def _build_kb_body(self, kb: KnowledgeBaseOptions) -> dict[str, Any]:
+        # Schema: KnowledgeBase resource on api-version 2025-11-01-preview.
+        # Top-level fields: name, knowledgeSources, models, retrievalReasoningEffort,
+        # outputMode, description, retrievalInstructions, answerInstructions.
+        # Legacy outputConfiguration / requestLimits / per-source includeReferences
+        # and rerankerThreshold are no longer part of the resource and must be
+        # passed per-retrieve (AgenticSearchRequest) at query time.
         body: dict[str, Any] = {
             "name": kb.name,
+            "knowledgeSources": [
+                {"name": source.name} for source in kb.knowledge_sources
+            ],
             "models": [
                 {
                     "kind": "azureOpenAI",
@@ -182,23 +201,8 @@ class KnowledgeBaseService(IKnowledgeBaseService):
                     },
                 }
             ],
-            "knowledgeSources": [
-                {
-                    "name": source.name,
-                    "includeReferences": True,
-                    "includeReferenceSourceData": True,
-                    "rerankerThreshold": kb.default_reranker_threshold,
-                }
-                for source in kb.knowledge_sources
-            ],
-            "outputConfiguration": {
-                "modality": kb.output_modality,
-                "attemptFastPath": kb.attempt_fast_path,
-                "includeActivity": True,
-            },
-            "requestLimits": {
-                "maxOutputSize": kb.max_output_size,
-            },
+            "retrievalReasoningEffort": {"kind": kb.retrieval_reasoning_effort},
+            "outputMode": kb.output_modality,
         }
         if kb.description:
             body["description"] = kb.description

@@ -197,13 +197,20 @@ def _write_final_result(output_format: str, payload: dict[str, Any]) -> None:
         logger.error("Agent operation failed: %s", payload.get("error", "unknown error"))
 
 
-async def _provision_knowledge_base(kb_options: KnowledgeBaseOptions, search_endpoint: str) -> str | None:
+async def _provision_knowledge_base(
+    kb_options: KnowledgeBaseOptions, search_endpoint: str, api_version: str
+) -> str | None:
     """Provision the knowledge source + knowledge agent. Returns the KB name."""
     if not search_endpoint:
         raise RuntimeError("SEARCH_ENDPOINT is required to provision the knowledge base")
 
-    logger.info("Provisioning knowledge base '%s' on %s", kb_options.name, search_endpoint)
-    svc = KnowledgeBaseService(search_endpoint=search_endpoint)
+    logger.info(
+        "Provisioning knowledge base '%s' on %s (api-version=%s)",
+        kb_options.name,
+        search_endpoint,
+        api_version,
+    )
+    svc = KnowledgeBaseService(search_endpoint=search_endpoint, api_version=api_version)
     try:
         await svc.create_or_update_knowledge_base_async(kb_options)
     finally:
@@ -211,13 +218,12 @@ async def _provision_knowledge_base(kb_options: KnowledgeBaseOptions, search_end
     return kb_options.name
 
 
-_MCP_KB_API_VERSION = "2025-11-01-preview"
 _ARM_CONNECTIONS_API_VERSION = "2025-10-01-preview"
 
 
-def _kb_mcp_endpoint(search_endpoint: str, kb_name: str) -> str:
+def _kb_mcp_endpoint(search_endpoint: str, kb_name: str, api_version: str) -> str:
     base = search_endpoint.rstrip("/")
-    return f"{base}/knowledgebases/{kb_name}/mcp?api-version={_MCP_KB_API_VERSION}"
+    return f"{base}/knowledgebases/{kb_name}/mcp?api-version={api_version}"
 
 
 def _ensure_mcp_kb_connection(
@@ -267,6 +273,7 @@ def _patch_mcp_kb_tool(
     kb_name: str | None,
     search_endpoint: str | None,
     connection_name: str,
+    api_version: str,
 ) -> bool:
     """Fill the placeholder ``server_url`` / ``project_connection_id`` on the MCP KB tool entry.
 
@@ -288,7 +295,7 @@ def _patch_mcp_kb_tool(
                     "or SEARCH_ENDPOINT is not configured. Remove --skip-knowledge-base or hard-code "
                     "server_url in the YAML."
                 )
-            tool["server_url"] = _kb_mcp_endpoint(search_endpoint, kb_name)
+            tool["server_url"] = _kb_mcp_endpoint(search_endpoint, kb_name, api_version)
             logger.info("Patched MCP tool server_url -> '%s'", tool["server_url"])
         if not tool.get("project_connection_id"):
             tool["project_connection_id"] = connection_name
@@ -315,10 +322,11 @@ async def _deploy(
     settings = get_settings()
     kb_options = settings.knowledge_base_options
     search_endpoint = settings.search_service.endpoint
+    kb_api_version = settings.knowledge_base.api_version
 
     kb_name: str | None = None
     if not skip_knowledge_base:
-        kb_name = await _provision_knowledge_base(kb_options, search_endpoint)
+        kb_name = await _provision_knowledge_base(kb_options, search_endpoint, kb_api_version)
 
     if knowledge_base_only:
         payload = {
@@ -332,7 +340,7 @@ async def _deploy(
         return
 
     tools = list(yaml_config["tools"] or [])
-    uses_foundry_iq = _patch_mcp_kb_tool(tools, kb_name, search_endpoint, kb_connection_name)
+    uses_foundry_iq = _patch_mcp_kb_tool(tools, kb_name, search_endpoint, kb_connection_name, kb_api_version)
 
     if uses_foundry_iq:
         logger.info("Resolving Foundry project resource id ...")
@@ -345,7 +353,7 @@ async def _deploy(
         _ensure_mcp_kb_connection(
             project_resource_id=resolved_project_resource_id,
             connection_name=kb_connection_name,
-            mcp_endpoint=_kb_mcp_endpoint(search_endpoint, kb_name),
+            mcp_endpoint=_kb_mcp_endpoint(search_endpoint, kb_name, kb_api_version),
         )
 
     logger.info("Creating or updating prompt agent '%s' (model=%s) ...", final_name, final_model)
@@ -418,7 +426,9 @@ async def _delete(endpoint: str, agent_name: str, delete_knowledge_base: bool) -
         logger.warning("SEARCH_ENDPOINT not configured; skipping KB teardown")
         return
 
-    svc = KnowledgeBaseService(search_endpoint=search_endpoint)
+    svc = KnowledgeBaseService(
+        search_endpoint=search_endpoint, api_version=settings.knowledge_base.api_version
+    )
     try:
         await svc.delete_knowledge_base_async(kb_options.name)
         for source in kb_options.knowledge_sources:

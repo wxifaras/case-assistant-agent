@@ -54,7 +54,7 @@ def _make_options() -> KnowledgeBaseOptions:
         ],
         aoai_endpoint="https://aifwxdev001.openai.azure.com",
         aoai_deployment_name="gpt-4.1",
-        output_modality="extractive",
+        output_modality="extractiveData",
         default_reranker_threshold=2.0,
         max_output_size=5000,
         attempt_fast_path=True,
@@ -74,7 +74,9 @@ async def test_create_or_update_knowledge_source_puts_expected_payload():
         name="ks1",
         index_name="idx1",
         description="hello",
-        source_data_select=["field_a", "field_b"],
+        source_data_fields=["field_a", "field_b"],
+        search_fields=["content", "title"],
+        semantic_configuration_name="semanticconfig",
     )
     await svc.create_or_update_knowledge_source_async(source)
 
@@ -92,7 +94,9 @@ async def test_create_or_update_knowledge_source_puts_expected_payload():
         "kind": "searchIndex",
         "searchIndexParameters": {
             "searchIndexName": "idx1",
-            "sourceDataSelect": "field_a,field_b",
+            "sourceDataFields": [{"name": "field_a"}, {"name": "field_b"}],
+            "searchFields": [{"name": "content"}, {"name": "title"}],
+            "semanticConfigurationName": "semanticconfig",
         },
         "description": "hello",
     }
@@ -115,24 +119,25 @@ async def test_create_or_update_knowledge_base_provisions_sources_then_agent():
     source_call = http.put.await_args_list[0]
     assert "/knowledgeSources/case-assistant-ks" in source_call.args[0]
 
-    # Second call is the knowledge agent
+    # Second call is the knowledge base
     agent_call = http.put.await_args_list[1]
     agent_url = agent_call.args[0]
-    assert "/agents/case-assistant-kb" in agent_url
+    assert "/knowledgebases('case-assistant-kb')" in agent_url
     assert f"api-version={_DEFAULT_API_VERSION}" in agent_url
 
     body = agent_call.kwargs["json"]
     assert body["name"] == "case-assistant-kb"
-    assert body["outputConfiguration"]["modality"] == "extractive"
-    assert body["outputConfiguration"]["attemptFastPath"] is True
-    assert body["requestLimits"]["maxOutputSize"] == 5000
+    assert body["outputMode"] == "extractiveData"
+    assert body["retrievalReasoningEffort"] == {"kind": "medium"}
     assert body["models"][0]["azureOpenAIParameters"]["deploymentId"] == "gpt-4.1"
     assert (
         body["models"][0]["azureOpenAIParameters"]["resourceUri"]
         == "https://aifwxdev001.openai.azure.com"
     )
-    assert body["knowledgeSources"][0]["name"] == "case-assistant-ks"
-    assert body["knowledgeSources"][0]["rerankerThreshold"] == 2.0
+    assert body["knowledgeSources"] == [{"name": "case-assistant-ks"}]
+    # Legacy fields must not leak into the new resource body.
+    assert "outputConfiguration" not in body
+    assert "requestLimits" not in body
 
 
 @pytest.mark.asyncio
@@ -160,7 +165,7 @@ async def test_delete_endpoints_treat_404_as_success():
     await svc.delete_knowledge_base_async("kb-x")
     await svc.delete_knowledge_source_async("ks-x")
     assert http.delete.await_count == 2
-    assert "/agents/kb-x" in http.delete.await_args_list[0].args[0]
+    assert "/knowledgebases('kb-x')" in http.delete.await_args_list[0].args[0]
     assert "/knowledgeSources/ks-x" in http.delete.await_args_list[1].args[0]
 
 
