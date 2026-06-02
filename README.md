@@ -153,6 +153,67 @@ Routes are mounted under `/api`.
   * `POST /api/sharepoint/sites/sync-site`
   * `POST /api/sharepoint/sites/sync`
 
+### SharePoint routes reference
+
+Site discovery and membership routes:
+
+* `GET /api/sharepoint/sites`
+  * Lists sites visible to the configured app identity
+  * Query params: `search`, `max_results`, `include_libraries`
+* `GET /api/sharepoint/sites/member-of`
+  * Lists sites where a specific user is a member
+  * Query params: `user_id`, `search`, `max_results`, optional `tenant_id`
+* `GET /api/sharepoint/sites/members`
+  * Lists members for a specific site
+  * Query params: `site_hostname`, `site_path`, optional `tenant_id`
+
+Sync routes:
+
+* `POST /api/sharepoint/sites/sync-site`
+  * Runs sync for one site request
+* `POST /api/sharepoint/sites/sync`
+  * Runs sync for multiple sites in one request
+
+Single-site sync payload example:
+
+```json
+{
+  "site_hostname": "contoso.sharepoint.com",
+  "site_path": "/sites/BainCaseAssistant",
+  "library_name": "Documents",
+  "folder_path": "Cases/2026",
+  "destination_container": "case-assistant-documents",
+  "tenant_id": "00000000-0000-0000-0000-000000000000"
+}
+```
+
+Multi-site sync payload example:
+
+```json
+{
+  "tenant_id": "00000000-0000-0000-0000-000000000000",
+  "sites": [
+    {
+      "site_hostname": "contoso.sharepoint.com",
+      "site_path": "/sites/BainCaseAssistant",
+      "library_name": "Documents"
+    },
+    {
+      "site_hostname": "contoso.sharepoint.com",
+      "site_path": "/sites/Legal",
+      "drive_id": "b!abc123xyz",
+      "destination_container": "legal-documents"
+    }
+  ]
+}
+```
+
+Sync payload notes:
+
+* `site_hostname` and `site_path` can be omitted only when SharePoint defaults are configured in `backend/.env`
+* Provide either `drive_id`, `library_name`, or a configured default `SHAREPOINT_LIBRARY_NAME`
+* `tenant_id` can be omitted only when `AZURE_TENANT_ID` is configured
+
 ## Ingestion Pipeline
 
 The ingestion system creates and runs three indexer paths:
@@ -350,9 +411,44 @@ The post-provision hook runs automatically after `azd provision` and `azd up`.
 
 Scripts are in `scripts/`:
 
-* `setup_rbac.py`: assigns required Azure RBAC roles for dev and managed identities
-* `setup_cosmos_rbac.py`: sets up Cosmos data-plane custom role assignments
-* `check_cosmos_rbac.py`: verifies Cosmos RBAC setup
+* `create_service_principal.py`
+  * Creates or reuses an Entra app registration and service principal
+  * Optional: creates a client secret for local service principal auth
+  * Prints identifiers needed by RBAC setup (`app_id`, `service_principal_object_id`)
+* `setup_rbac.py`
+  * Assigns Azure RBAC roles for local development and SharePoint sync dependencies
+  * Can target the signed-in user or a specific principal via `--principal-id`
+  * Optional: grants Microsoft Graph app permissions with `--grant-sharepoint-app-permissions`
+  * Graph permission mapping:
+    * `Sites.Read.All`: required for site discovery and site metadata reads (`GET /api/sharepoint/sites`, `GET /api/sharepoint/sites/members`) and for resolving sync site targets
+    * `Files.Read.All`: required to enumerate drives/items and download SharePoint files during sync (`POST /api/sharepoint/sites/sync-site`, `POST /api/sharepoint/sites/sync`)
+    * `Group.Read.All`: required to resolve connected Microsoft 365 groups from sites for membership lookups
+    * `GroupMember.Read.All`: required to read transitive group members and owners for `member-of` and `members` endpoints
+    * `User.Read.All`: required to read user identity attributes (for example id, UPN, email) used in membership matching and response shaping
+* `setup_cosmos_rbac.py`
+  * Creates Cosmos DB custom data-plane role and assignment
+* `check_cosmos_rbac.py`
+  * Verifies Cosmos RBAC setup
+
+Recommended order for service principal setup:
+
+1. Create or reuse the app registration and service principal
+
+```powershell
+python scripts/create_service_principal.py --name case-assistant-sharepoint-sync --create-secret
+```
+
+1. Assign Azure RBAC roles and optional Graph app permissions
+
+```powershell
+python scripts/setup_rbac.py --subscription <subscription-id> --resource-group <resource-group> --principal-id <service-principal-object-id> --principal-type ServicePrincipal --grant-sharepoint-app-permissions
+```
+
+1. Optionally ensure Cosmos DB custom data-plane role assignment
+
+```powershell
+python scripts/setup_cosmos_rbac.py --resource-group <resource-group> --account-name <cosmos-account-name> --principal-id <service-principal-object-id>
+```
 
 ## Known Limitations
 

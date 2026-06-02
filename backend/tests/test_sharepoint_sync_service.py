@@ -467,6 +467,52 @@ async def test_list_site_members_returns_projected_members(monkeypatch: pytest.M
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_sync_site_prefers_delegated_graph_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    svc = _make_service(_make_settings(), MagicMock(), MagicMock())
+
+    captured: dict[str, str] = {}
+
+    async def fake_site_info(headers, site_hostname, site_path) -> tuple[str, str]:
+        captured["authorization"] = headers.get("Authorization", "")
+        return "site-123", "Delegated Site"
+
+    async def fake_drive(headers, request, site_id, library_name) -> str:
+        return "drive-1"
+
+    async def fake_folder(headers, drive_id, folder_path) -> str:
+        return "folder-1"
+
+    async def fake_iter(headers, drive_id, folder_item_id):
+        yield {
+            "id": "a",
+            "name": "a.txt",
+            "size": 1,
+            "file": {},
+            "parentReference": {"path": "/x"},
+            "@microsoft.graph.downloadUrl": "https://dl.example/a",
+            "_source_path": "/x/a.txt",
+            "_relative_path": "a.txt",
+        }
+
+    acquire_graph_token = AsyncMock(return_value="app-token-should-not-be-used")
+    monkeypatch.setattr(svc, "_acquire_graph_token", acquire_graph_token)
+    monkeypatch.setattr(svc, "_resolve_site_info", fake_site_info)
+    monkeypatch.setattr(svc, "_resolve_drive_id", fake_drive)
+    monkeypatch.setattr(svc, "_resolve_folder_item_id", fake_folder)
+    monkeypatch.setattr(svc, "_iter_files", fake_iter)
+    monkeypatch.setattr(svc, "_copy_download_url_to_blob", AsyncMock())
+
+    await svc.sync_site(
+        _make_request(),
+        delegated_graph_access_token="delegated-token-abc",
+    )
+
+    acquire_graph_token.assert_not_awaited()
+    assert captured["authorization"] == "Bearer delegated-token-abc"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_list_member_sites_returns_member_sites(monkeypatch: pytest.MonkeyPatch) -> None:
     svc = _make_service(_make_settings(), MagicMock(), MagicMock(), sites_repo=MagicMock())
 

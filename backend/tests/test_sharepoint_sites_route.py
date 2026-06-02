@@ -177,6 +177,7 @@ async def test_sync_site_returns_success_payload() -> None:
     response = await sharepoint.sync_site(
         request_body=SharePointSyncRequest(),
         sharepoint_service=service,
+        bearer_token=None,
         logger=MagicMock(),
     )
 
@@ -196,6 +197,7 @@ async def test_sync_site_returns_400_for_invalid_request() -> None:
     response = await sharepoint.sync_site(
         request_body=SharePointSyncRequest(),
         sharepoint_service=service,
+        bearer_token=None,
         logger=MagicMock(),
     )
 
@@ -203,3 +205,24 @@ async def test_sync_site_returns_400_for_invalid_request() -> None:
     payload = json.loads(bytes(response.body).decode("utf-8"))
     assert payload["error"] == "Invalid SharePoint sync request"
     assert payload["details"] == "bad request"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_sync_site_passes_delegated_bearer_token_to_service() -> None:
+    service = MagicMock()
+    request = SharePointSyncRequest()
+    service.sync_site = AsyncMock(return_value=MagicMock(model_dump=MagicMock(return_value={"copied": 1, "failed": 0})))
+
+    response = await sharepoint.sync_site(
+        request_body=request,
+        sharepoint_service=service,
+        bearer_token="delegated-token-123",
+        logger=MagicMock(),
+    )
+
+    assert response.status_code == 200
+    service.sync_site.assert_awaited_once()
+    args, kwargs = service.sync_site.await_args
+    assert args[0] is request
+    assert kwargs["delegated_graph_access_token"] == "delegated-token-123"
