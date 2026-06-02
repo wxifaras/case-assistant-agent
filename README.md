@@ -5,16 +5,17 @@ description: Local development and setup guide for the Case Assistant Agent, inc
 
 ## Overview
 
-Case Assistant Agent is an Azure-based, agentic RAG application with:
+Case Assistant Agent is an Azure-based, agentic RAG application built on **Foundry IQ** (Microsoft Foundry's agentic retrieval / knowledge base layer), with:
 
 * A FastAPI backend for chat, ingestion orchestration, and pipeline status APIs
 * A React simple chat frontend for local developer testing
 * A Teams bot frontend for Microsoft 365 integration scenarios
 * An Azure AI Search ingestion pipeline that processes blob content into a vector-enabled index
+* A Foundry IQ knowledge base wired to the Azure AI Search index, surfaced to the Foundry agent via the native `azure_ai_search` tool
 * A SharePoint delta-sync pipeline with scheduled queue-based execution
 * A Service Bus queue worker that runs SharePoint sync jobs and conditionally triggers indexers
 * Cosmos DB chat history storage with hierarchical partition keys
-* Optional Azure AI Foundry prompt-agent deployment and runtime invocation path
+* A Foundry hosted agent (deployed via `scripts/deploy_agent.py`) that performs retrieval through Foundry IQ at runtime
 
 ## Repository Structure
 
@@ -218,17 +219,18 @@ Trigger a manual scheduler run:
 Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:7072/api/schedule/sharepoint-sync" -ContentType "application/json" -Body "{}"
 ```
 
-## Foundry Prompt Agent
+## Foundry IQ Agent
 
-The repository includes a Foundry prompt-agent definition and deployment script:
+The repository includes a Foundry hosted agent that uses **Foundry IQ** for retrieval. The agent is wired to an Azure AI Search index through the native `azure_ai_search` tool, which Foundry IQ resolves via the project connection created in `infra/modules/foundry-connections.bicep`.
 
-* Agent YAML: `backend/app/agents/case_assistant_agent.yaml`
+* Agent YAML: `backend/app/agents/case_assistant_agent.yaml` (declares the `azure_ai_search` tool, target index, semantic/query config, and instructions)
 * Deployment CLI: `scripts/deploy_agent.py`
+* Project connection (Bicep): `infra/modules/foundry-connections.bicep` (resource name `aisearch`)
 
 Set these environment variables in `backend/.env` (or your shell) before deploying:
 
 * `FOUNDRY_PROJECT_ENDPOINT` (for example `https://<account>.services.ai.azure.com/api/projects/<project>`)
-* `FOUNDRY_MODEL` (model deployment name used by the prompt agent)
+* `FOUNDRY_MODEL` (model deployment name used by the agent)
 
 To enable runtime invocation from the backend, also set:
 
@@ -236,7 +238,7 @@ To enable runtime invocation from the backend, also set:
 * `FOUNDRY_AGENT_NAME=<agent-name>`
 * Optional: `FOUNDRY_AGENT_TIMEOUT_SECONDS=90`
 
-Deploy or update the prompt agent:
+Deploy or update the Foundry IQ agent:
 
 ```powershell
 backend/.venv/Scripts/python scripts/deploy_agent.py --endpoint $env:FOUNDRY_PROJECT_ENDPOINT deploy
