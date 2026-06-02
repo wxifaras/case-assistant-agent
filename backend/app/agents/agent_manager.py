@@ -28,7 +28,8 @@ class AgentRecord:
 
 
 def _normalize_tool(tool: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(tool)
+    """Drop YAML-only keys (``type``) and apply defaults before constructing an SDK tool model."""
+    normalized = {k: v for k, v in tool.items() if k != "type"}
     if "require_approval" not in normalized:
         normalized["require_approval"] = "never"
     return normalized
@@ -71,8 +72,43 @@ class AgentManager:
             )
         return str(conn_id)
 
-    async def _build_azure_ai_search_tool(self, tool: dict[str, Any]) -> AzureAISearchTool:
+    async def _build_azure_ai_search_tool(self, tool: dict[str, Any]) -> Any:
+        """Build an Azure AI Search tool entry for the prompt agent.
+
+        Returns one of two shapes:
+
+        * Typed :class:`AzureAISearchTool` — when bound to one or more indexes
+          directly (``index_name`` provided).
+        * Raw ``dict`` payload — when bound to a knowledge base
+          (``knowledge_base_name`` provided). The typed SDK does not yet
+          expose a KB-bound variant, so we emit the wire format directly.
+        """
         cfg = tool.get("azure_ai_search") or {}
+
+        # ----- Knowledge-base-backed variant -----
+        kb_name = cfg.get("knowledge_base_name")
+        if kb_name:
+            project_connection_id = cfg.get("project_connection_id") or cfg.get("index_connection_id")
+            if not project_connection_id:
+                connection_name = cfg.get("connection_name")
+                if not connection_name:
+                    raise ValueError(
+                        "azure_ai_search (knowledge_base) tool requires 'project_connection_id' or 'connection_name'"
+                    )
+                project_connection_id = await self._resolve_connection_id(connection_name)
+            return {
+                "type": "azure_ai_search",
+                "azure_ai_search": {
+                    "indexes": [
+                        {
+                            "index_connection_id": project_connection_id,
+                            "knowledge_base_name": kb_name,
+                        }
+                    ],
+                },
+            }
+
+        # ----- Index-direct variant (existing behaviour) -----
         indexes_cfg = cfg.get("indexes")
         if not indexes_cfg:
             # Single-index shorthand at the top of azure_ai_search block.
@@ -91,7 +127,7 @@ class AgentManager:
 
             index_name = idx.get("index_name")
             if not index_name:
-                raise ValueError("azure_ai_search tool requires 'index_name'")
+                raise ValueError("azure_ai_search tool requires 'index_name' or 'knowledge_base_name'")
 
             resource_kwargs: dict[str, Any] = {
                 "project_connection_id": project_connection_id,
