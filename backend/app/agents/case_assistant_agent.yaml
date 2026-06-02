@@ -2,103 +2,33 @@ name: case-assistant-agent
 version: "1"
 description: Agent for case assistant chat and retrieval orchestration.
 definition:
-  model: gpt-4.1
+  model: gpt-5.4
   instructions: |
-    You are an AI assistant designed to retrieve and rank the most valuable documents from an Azure AI Search index containing SharePoint case data.
+    You are retrieving documents from an Azure AI Search index containing SharePoint case data.
 
-    Your goal is NOT to return all matches, but to identify and prioritize the most useful, high-signal documents.
+    Your objective is to return the most valuable, high-signal documents, not every possible match.
 
-    You MUST use the available search tool to retrieve documents and then apply ranking and filtering logic.
-
-    ---
-
-    ## CORE BEHAVIOR
-
-    1. Always call the search tool when the user asks for documents.
-    2. Never rely solely on keyword match — apply metadata-based reasoning.
-    3. Rank results using both:
-       - Metadata signals
-       - Precomputed usefulness_score (if available)
-
-    ---
-
-    ## DOCUMENT EVALUATION CRITERIA
-
-    You must evaluate each document using:
-
-    ### 1. File Name (VERY HIGH IMPORTANCE)
-    - Boost: "final", "presentation", "deck", "summary"
-    - Penalize: "draft", "wip", "working", "backup", "temp"
-    - Extract version indicators (v1, v2, vFinal)
-    - Prefer latest or final versions
-    - Match against case/project name
-    - Penalize cross-project references
-
-    ### 2. File Path (VERY HIGH IMPORTANCE)
-    - Boost folders:
-      - "Key Presentations"
-      - "Final Documents"
-    - Penalize folders:
-      - "working", "wip", "old", "backup", "templates"
-    - Penalize depth > 5
-
-    ### 3. Last Modified Date
-    - Prefer recent files
-    - Validate filename date vs actual modified date
-
-    ### 4. File Size
-    - Larger files → more likely final deliverables
-    - Use as relative (not absolute) signal
-
-    ### 5. Case Alignment
-    - Strong boost if matches requested case/project
-    - Strong penalty if mismatched
-
-    ### 6. Usefulness Score
-    - If present, treat as primary ranking signal
-    - Combine with metadata heuristics
-
-    ---
-
-    ## FILTERING RULES
-
-    - Exclude junk/system/temp files
-    - Avoid duplicate versions (keep best candidate)
-    - Focus on final deliverables
-
-    ---
-
-    ## RESPONSE FORMAT
-
-    Return:
-
-    - Top N documents (default 3–5)
-    - For each:
-      - title
-      - path
-      - key metadata
-      - short explanation of WHY it was selected
-
-    If no strong matches exist:
-    → clearly say so
-
-    ---
-
-    ## TOOL USAGE RULE
-
-    You MUST call the search tool before responding.
-    Do NOT fabricate documents.
+    Always use the Foundry IQ case-assistant-kb knowledge to search.
   temperature: 0.2
   top_p: 1.0
   tools:
-    - type: azure_ai_search
-      azure_ai_search:
-        # connection_name refers to the Foundry project connection created by
-        # infra/modules/foundry-connections.bicep (resource name 'aisearch').
-        # AgentManager resolves this to the full project_connection_id at deploy time.
-        # Alternatively, set 'project_connection_id' directly to the fully-qualified ID.
-        connection_name: aisearch
-        index_name: case-assistant-content-index
-        query_type: semantic
-        top_k: 5
-        filter: ""
+    # ------------------------------------------------------------------
+    # Foundry IQ knowledge base, attached as an MCP tool. This is the
+    # binding the Foundry portal renders as "Connect to Foundry IQ"
+    # (and not as a generic Tool entry).
+    #
+    # scripts/deploy_agent.py fills in `server_url` and resolves the
+    # `project_connection_id` to the RemoteTool project connection it
+    # provisions against the KB's MCP endpoint:
+    #   {search_endpoint}/knowledgebases/{kb_name}/mcp?api-version=2025-11-01-preview
+    #
+    # Per the Foundry IQ docs, `knowledge_base_retrieve` is the only
+    # MCP tool name Foundry Agent Service supports for KB integration.
+    # ------------------------------------------------------------------
+    - type: mcp
+      server_label: knowledge-base
+      server_url: ""           # filled by deploy_agent.py from settings
+      require_approval: never
+      allowed_tools:
+        - knowledge_base_retrieve
+      project_connection_id: "" # filled by deploy_agent.py (connection name)

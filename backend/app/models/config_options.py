@@ -1,6 +1,7 @@
 """Configuration options for all Azure services and application settings."""
 
 import re
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -531,3 +532,90 @@ class PIIDetectionOptions(BaseModel):
     model_config = {
         "str_strip_whitespace": True,
     }
+
+
+class KnowledgeSourceOptions(BaseModel):
+    """Configuration for an Azure AI Search Knowledge Source.
+
+    A knowledge source binds the Knowledge Base to an underlying retrieval
+    surface. ``searchIndex`` is the kind used for this project — the source
+    references an existing Azure AI Search index by name.
+    """
+
+    name: str = Field(..., min_length=1, description="Knowledge source name (unique per search service)")
+    kind: Literal["searchIndex"] = Field(
+        default="searchIndex",
+        description="Knowledge source kind. Only 'searchIndex' is currently wired by this project.",
+    )
+    index_name: str = Field(
+        ..., min_length=1, description="Existing Azure AI Search index that backs this knowledge source"
+    )
+    description: str | None = Field(default=None, description="Optional human-readable description")
+    source_data_fields: list[str] = Field(
+        default_factory=list,
+        description="Fields surfaced as citation metadata on retrieved references (KS searchIndexParameters.sourceDataFields).",
+    )
+    search_fields: list[str] = Field(
+        default_factory=list,
+        description="Restrict which index fields are searched (KS searchIndexParameters.searchFields). Empty = search all default searchable fields.",
+    )
+    semantic_configuration_name: str | None = Field(
+        default=None,
+        description="Override the index's default semantic configuration (KS searchIndexParameters.semanticConfigurationName).",
+    )
+
+    model_config = {
+        "str_strip_whitespace": True,
+    }
+
+
+class KnowledgeBaseOptions(BaseModel):
+    """Configuration for an Azure AI Search Knowledge Agent (a.k.a. Knowledge Base).
+
+    The KB binds one or more :class:`KnowledgeSourceOptions` and an Azure
+    OpenAI deployment that the agent uses for query planning. The Azure AI
+    Search service must have AAD permission on the AOAI endpoint
+    (``Cognitive Services OpenAI User`` on the Foundry account) so the KB
+    can call the model with its system-assigned identity.
+    """
+
+    name: str = Field(
+        default="case-assistant-kb", min_length=1, description="Knowledge Base (knowledge agent) name"
+    )
+    description: str | None = Field(default=None, description="Optional human-readable description")
+    knowledge_sources: list[KnowledgeSourceOptions] = Field(
+        default_factory=list, description="Knowledge sources bound to this KB"
+    )
+    aoai_endpoint: str | None = Field(
+        default=None,
+        description="Azure OpenAI / Foundry account endpoint the KB uses for query planning (e.g. https://<account>.openai.azure.com)",
+    )
+    aoai_deployment_name: str | None = Field(
+        default=None, description="AOAI deployment name (e.g. gpt-4.1) used by the KB for query planning"
+    )
+    output_modality: Literal["extractiveData", "answerSynthesis"] = Field(
+        default="extractiveData",
+        description="KB outputConfiguration.modality. 'extractiveData' returns ranked passages; 'answerSynthesis' returns a synthesized answer.",
+    )
+    default_reranker_threshold: float = Field(
+        default=2.0, ge=0.0, le=4.0, description="Default minimum reranker score for results returned by the KB"
+    )
+    max_output_size: int = Field(
+        default=5000, gt=0, description="Maximum output size (tokens/characters per KB invocation, per spec)"
+    )
+    attempt_fast_path: bool = Field(
+        default=True, description="When True, the KB may short-circuit query planning for simple queries"
+    )
+    retrieval_instructions: str | None = Field(
+        default=None,
+        description="Prompt passed to the LLM during query planning (KB retrievalInstructions).",
+    )
+    retrieval_reasoning_effort: Literal["minimal", "low", "medium"] = Field(
+        default="medium",
+        description="LLM reasoning effort for query planning (KB retrievalReasoningEffort.kind).",
+    )
+
+    model_config = {
+        "str_strip_whitespace": True,
+    }
+

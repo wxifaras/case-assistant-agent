@@ -29,6 +29,8 @@ from app.models.config_options import (
     CosmosDBOptions,
     FoundryAgentOptions,
     KeyVaultOptions,
+    KnowledgeBaseOptions,
+    KnowledgeSourceOptions,
     PIIDetectionOptions,
     SearchServiceOptions,
     WorkflowOptions,
@@ -350,6 +352,125 @@ class FoundryAgentSettings(AppConfigAwareSettings):
     agent_timeout_seconds: int = Field(default=90, description="Timeout in seconds for prompt-agent runs")
 
 
+# Hardcoded Knowledge Base / Knowledge Source identifiers. These are baked
+# into the agent YAML tool entry (knowledge_base_name) so they must not change
+# without a coordinated update to backend/app/agents/case_assistant_agent.yaml.
+KB_NAME = "case-assistant-kb"
+KS_NAME = "case-assistant-ks"
+
+
+class KnowledgeBaseSettings(AppConfigAwareSettings):
+    """Azure AI Search Knowledge Base + Knowledge Source provisioning settings.
+
+    Env-var prefix: ``SEARCH_KB_``
+
+    The KB and KS names are hardcoded (``KB_NAME`` / ``KS_NAME``); only AOAI,
+    output, and knowledge-source content fields are env-driven. For multi-source
+    setups, construct :class:`KnowledgeSourceOptions` directly.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="SEARCH_KB_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    api_version: str = Field(
+        default="2025-11-01-preview",
+        description="Azure AI Search data-plane API version used for KB/KS provisioning and MCP endpoint (SEARCH_KB_API_VERSION).",
+    )
+    description: str | None = Field(
+        default=(
+            "Knowledge base for retrieving and ranking high-signal SharePoint case "
+            "documents from Azure AI Search. It is optimized to identify the most "
+            "useful final deliverables for a requested case or project, prioritize "
+            "authoritative documents over drafts or working files, remove duplicates "
+            "and stale versions, and return concise, citation-ready document "
+            "recommendations with rationale."
+        ),
+        description="Optional KB description",
+    )
+    aoai_endpoint: str | None = Field(
+        default=None,
+        description="Foundry / AOAI account endpoint the KB uses for query planning (https://<account>.openai.azure.com)",
+    )
+    aoai_deployment_name: str | None = Field(
+        default=None, description="AOAI deployment name (e.g. gpt-4.1) used by the KB for query planning"
+    )
+    output_modality: str = Field(
+        default="extractiveData",
+        description="KB outputConfiguration.modality: 'extractiveData' or 'answerSynthesis'",
+    )
+    retrieval_reasoning_effort: str = Field(
+        default="medium",
+        description="KB retrievalReasoningEffort kind: 'minimal', 'low', or 'medium'",
+    )
+    retrieval_instructions: str | None = Field(
+        default=(
+            "You are retrieving documents from an Azure AI Search index containing SharePoint case data. "
+            "Your objective is to return the most valuable, high-signal documents, not every possible match. "
+            "Use both relevance and metadata reasoning to rank results. Prefer documents that are likely to be "
+            "final, authoritative, recent, case-aligned, and useful.\n\n"
+            "Ranking priorities:\n"
+            "1. Usefulness score. If usefulness_score is present, treat it as a primary ranking signal. Combine "
+            "it with metadata and content relevance. Do not blindly accept a high score if the document appears "
+            "mismatched, obsolete, duplicated, or junk.\n"
+            "2. File name. Boost terms such as final, presentation, deck, summary, executive summary, readout, "
+            "report, deliverable, recommendation, closeout. Penalize draft, wip, working, backup, temp, copy, "
+            "old, archive, template, scratch, notes, test. Prefer the latest or final version. Prefer filenames "
+            "matching the requested case, client, matter, project, or initiative.\n"
+            "3. File path. Strongly boost folders such as Key Presentations, Final Documents, Deliverables, "
+            "Reports, Executive Summaries, Client Ready, Final. Penalize working, wip, draft, old, backup, "
+            "archive, templates, temp, scratch, personal. Penalize folder depth greater than 5.\n"
+            "4. Last modified date. Prefer recent documents when comparing otherwise similar results.\n"
+            "5. File size. Larger files are often more complete deliverables. Use as a relative signal only.\n"
+            "6. Case alignment. Strongly boost documents matching the requested case, project, client, matter, "
+            "or topic. Strongly penalize documents that appear to reference another case.\n\n"
+            "Filtering: exclude system, temp, junk, placeholder, backup, and obvious duplicate files. Avoid "
+            "returning multiple versions of the same document; keep the best candidate. Prefer final "
+            "deliverables, executive summaries, presentations, reports, and case-level summaries. Include "
+            "drafts only when no stronger final documents exist."
+        ),
+        description="KB retrievalInstructions prompt used by the LLM during query planning",
+    )
+    default_reranker_threshold: float = Field(default=2.0, description="Default minimum reranker score (0-4)")
+    max_output_size: int = Field(default=5000, description="Max output size per KB invocation")
+    attempt_fast_path: bool = Field(default=True, description="Allow KB to short-circuit query planning")
+
+    # Single knowledge source (env-driven content fields).
+    ks_index_name: str | None = Field(
+        default=None,
+        description="AI Search index that backs the knowledge source. Defaults to SearchService.index_name when unset.",
+    )
+    ks_description: str | None = Field(
+        default=(
+            "Azure AI Search index containing SharePoint case documents, "
+            "presentations, summaries, drafts, and related project files. This source "
+            "should be used to locate the highest-value case materials by combining "
+            "content relevance with document metadata such as file name, folder path, "
+            "modified date, file size, project/case alignment, version indicators, "
+            "and any available usefulness_score."
+        ),
+        description="Optional knowledge source description",
+    )
+    ks_source_data_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "JSON array of index field names surfaced as citation metadata on references "
+            "(KS sourceDataFields). Example: '[\"content_id\",\"document_title\"]'."
+        ),
+    )
+    ks_search_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "JSON array of index field names restricting which fields are searched "
+            "(KS searchFields). Example: '[\"content_text\",\"document_title\"]'."
+        ),
+    )
+    ks_semantic_configuration_name: str | None = Field(
+        default=None,
+        description="Override the index's default semantic configuration (KS semanticConfigurationName).",
+    )
+
+
 class Settings(AppConfigAwareSettings):
     """Unified application settings loaded from environment variables or a ``.env`` file.
 
@@ -371,6 +492,7 @@ class Settings(AppConfigAwareSettings):
     workflow: WorkflowSettings = Field(default_factory=lambda: WorkflowSettings())  # type: ignore[call-arg]
     pii_detection: PIIDetectionSettings = Field(default_factory=lambda: PIIDetectionSettings())  # type: ignore[call-arg]
     foundry_agent: FoundryAgentSettings = Field(default_factory=lambda: FoundryAgentSettings())  # type: ignore[call-arg]
+    knowledge_base: KnowledgeBaseSettings = Field(default_factory=lambda: KnowledgeBaseSettings())  # type: ignore[call-arg]
     sharepoint: SharePointSettings = Field(default_factory=lambda: SharePointSettings())  # type: ignore[call-arg]
     service_bus: ServiceBusSettings = Field(default_factory=lambda: ServiceBusSettings())  # type: ignore[call-arg]
 
@@ -545,6 +667,49 @@ class Settings(AppConfigAwareSettings):
             agent_name=self.foundry_agent.agent_name,
             model=self.foundry_agent.model,
             timeout_seconds=self.foundry_agent.agent_timeout_seconds,
+        )
+
+    @property
+    def knowledge_base_options(self) -> KnowledgeBaseOptions:
+        """Create KnowledgeBaseOptions (with a single env-driven knowledge source) from nested settings.
+
+        Defaults fall back to existing settings so a typical deployment needs no
+        ``SEARCH_KB_*`` env vars at all:
+
+        * ``ks_index_name`` -> ``search_service.index_name``
+        * ``aoai_endpoint`` -> ``azure_openai.endpoint`` (trailing slash trimmed)
+        * ``aoai_deployment_name`` -> ``azure_openai.deployment_name``
+
+        Override via ``SEARCH_KB_AOAI_ENDPOINT`` / ``SEARCH_KB_AOAI_DEPLOYMENT_NAME``
+        only when the KB should call a different AOAI account or model than the
+        chat app.
+        """
+        kb = self.knowledge_base
+        index_name = kb.ks_index_name or self.search_service.index_name
+        aoai_endpoint = (kb.aoai_endpoint or self.azure_openai.endpoint or "").rstrip("/")
+        aoai_deployment = kb.aoai_deployment_name or self.azure_openai.deployment_name
+        sources = [
+            KnowledgeSourceOptions(
+                name=KS_NAME,
+                index_name=index_name,
+                description=kb.ks_description,
+                source_data_fields=list(kb.ks_source_data_fields),
+                search_fields=list(kb.ks_search_fields),
+                semantic_configuration_name=kb.ks_semantic_configuration_name,
+            )
+        ]
+        return KnowledgeBaseOptions(
+            name=KB_NAME,
+            description=kb.description,
+            knowledge_sources=sources,
+            aoai_endpoint=aoai_endpoint or None,
+            aoai_deployment_name=aoai_deployment,
+            output_modality=kb.output_modality,  # type: ignore[arg-type]
+            default_reranker_threshold=kb.default_reranker_threshold,
+            max_output_size=kb.max_output_size,
+            attempt_fast_path=kb.attempt_fast_path,
+            retrieval_instructions=kb.retrieval_instructions,
+            retrieval_reasoning_effort=kb.retrieval_reasoning_effort,  # type: ignore[arg-type]
         )
 
 
