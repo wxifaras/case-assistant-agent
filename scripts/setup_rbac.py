@@ -14,7 +14,7 @@ Roles assigned to the signed-in user:
   Azure AI Search       Search Index Data Contributor          Search service
   Azure AI Search       Search Service Contributor             Search service
   Microsoft Foundry     Azure AI Developer                     AI Services account
-  Microsoft Foundry     Azure AI User                          AI Services account
+  Microsoft Foundry     Foundry User                           AI Services account
   Microsoft Foundry     Cognitive Services OpenAI User         AI Services account
   AI multi-service      Cognitive Services User                AI multi-service account
   App Configuration     App Configuration Data Reader          AppConfig store
@@ -60,6 +60,14 @@ Usage:
         --servicebus-namespace <servicebus-namespace-name> \
         --servicebus-queue <servicebus-queue-name>
 
+    # Grant Microsoft Graph delegated permissions to the same app registration
+    # so signed-in users can request user-delegated tokens for sync-site:
+    python scripts/setup_rbac.py \
+        --resource-group <rg> \
+        --principal-id <service-principal-object-id> \
+        --principal-type ServicePrincipal \
+        --grant-sharepoint-delegated-permissions
+
     # Grant roles to a different principal (managed identity, service principal,
     # another user, or a security group) instead of the signed-in user. The
     # signed-in user is only used to create the role assignments and must have
@@ -86,10 +94,17 @@ Behaviour notes:
     which works for managed identities and service principals). Pass
     --principal-type User to target another Entra ID user, or Group for a
     security group.
-    - Optional: use --grant-sharepoint-app-permissions to add Microsoft Graph
+    # Optional: use --grant-sharepoint-app-permissions to add Microsoft Graph
         application permissions (default: Sites.Read.All, Files.Read.All,
         Group.Read.All, GroupMember.Read.All, User.Read.All) to the target
         service principal app registration and attempt admin consent.
+    - Optional: use --grant-sharepoint-delegated-permissions to add Microsoft
+        Graph delegated permissions (default: Sites.Read.All, Files.Read.All)
+        to the target service principal app registration and attempt
+        admin consent for the tenant.
+    - Optional: use --validate-sharepoint-access to verify local user Graph
+        access to a site/library. This validation is separate from permission
+        assignment and is skipped by default.
   - If the Azure CLI token is rejected by Conditional Access (CAE,
     TokenCreatedWithOutdatedPolicies, AADSTS50173, AADSTS700082), the script
     triggers an interactive ``az login`` and retries automatically.
@@ -1322,7 +1337,7 @@ def setup_sharepoint_app_permissions(
         return
 
     for value, role_id in role_ids:
-        ok, result = _run_json(
+        ok, result = _run_str(
             [
                 "az",
                 "ad",
@@ -1347,9 +1362,108 @@ def setup_sharepoint_app_permissions(
         else:
             print_error(f"Failed to add Microsoft Graph app permission '{value}': {message}")
 
-    ok, consent_result = _run_json(["az", "ad", "app", "permission", "admin-consent", "--id", app_id])
+    ok, consent_result = _run_str(["az", "ad", "app", "permission", "admin-consent", "--id", app_id])
     if ok:
         print_success("Admin consent granted for Microsoft Graph application permissions")
+    else:
+        print_warning("Could not grant admin consent automatically.")
+        if isinstance(consent_result, str) and consent_result:
+            print_detail(consent_result)
+        print_detail("Ask a Global Admin to run:")
+        print_detail(f"az ad app permission admin-consent --id {app_id}")
+
+
+def setup_sharepoint_delegated_permissions(
+    principal_id: str,
+    principal_type: str,
+    permission_values: list[str],
+) -> None:
+    """Grant Microsoft Graph *delegated* permissions for SharePoint sync.
+
+    This targets service principals only. It configures delegated permissions on
+    the associated app registration and then requests admin consent.
+    """
+    print_section("SharePoint / Graph Delegated Permissions")
+
+    if principal_type != "ServicePrincipal":
+        print_skip("SharePoint delegated permissions (supported only for ServicePrincipal targets)")
+        return
+
+    ok, sp = _run_json(["az", "ad", "sp", "show", "--id", principal_id, "-o", "json"])
+    if not ok or not isinstance(sp, dict):
+        print_error(f"Could not resolve service principal '{principal_id}'")
+        if isinstance(sp, str) and sp:
+            print_detail(sp)
+        return
+
+    app_id = str(sp.get("appId") or "").strip()
+    if not app_id:
+        print_error("Service principal has no appId; cannot grant Graph delegated permissions.")
+        return
+
+    ok, graph_sp = _run_json(["az", "ad", "sp", "show", "--id", _GRAPH_APP_ID, "-o", "json"])
+    if not ok or not isinstance(graph_sp, dict):
+        print_error("Could not resolve Microsoft Graph service principal.")
+        if isinstance(graph_sp, str) and graph_sp:
+            print_detail(graph_sp)
+        return
+
+    delegated_scopes = graph_sp.get("oauth2PermissionScopes", [])
+    if not isinstance(delegated_scopes, list):
+        delegated_scopes = []
+
+    scope_ids: list[tuple[str, str]] = []
+    for value in permission_values:
+        match = next(
+            (
+                scope
+                for scope in delegated_scopes
+                if str(scope.get("value") or "").strip().lower() == value.lower() and bool(scope.get("isEnabled", True))
+            ),
+            None,
+        )
+        if not isinstance(match, dict):
+            print_warning(f"Microsoft Graph delegated permission '{value}' not found — skipping.")
+            continue
+        scope_id = str(match.get("id") or "").strip()
+        if not scope_id:
+            print_warning(f"Microsoft Graph delegated permission '{value}' has no scope ID — skipping.")
+            continue
+        scope_ids.append((value, scope_id))
+
+    if not scope_ids:
+        print_warning("No valid Microsoft Graph delegated permissions to assign.")
+        return
+
+    for value, scope_id in scope_ids:
+        ok, result = _run_str(
+            [
+                "az",
+                "ad",
+                "app",
+                "permission",
+                "add",
+                "--id",
+                app_id,
+                "--api",
+                _GRAPH_APP_ID,
+                "--api-permissions",
+                f"{scope_id}=Scope",
+            ]
+        )
+        if ok:
+            print_success(f"Added Microsoft Graph delegated permission '{value}'")
+            continue
+
+        message = str(result)
+        if "Permission entry already exists" in message or "already exists" in message.lower():
+            print_warning(f"Microsoft Graph delegated permission '{value}' already present")
+        else:
+            print_error(f"Failed to add Microsoft Graph delegated permission '{value}': {message}")
+
+    ok, consent_result = _run_str(["az", "ad", "app", "permission", "admin-consent", "--id", app_id])
+    if ok:
+        print_success("Admin consent granted for Microsoft Graph delegated permissions")
     else:
         print_warning("Could not grant admin consent automatically.")
         if isinstance(consent_result, str) and consent_result:
@@ -1445,17 +1559,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sharepoint-site-hostname",
         metavar="HOSTNAME",
-        help="SharePoint hostname for Graph validation (for example: contoso.sharepoint.com).",
+        help="SharePoint hostname for Graph validation (used only with --validate-sharepoint-access).",
     )
     parser.add_argument(
         "--sharepoint-site-path",
         metavar="SITE_PATH",
-        help="SharePoint site server-relative path for Graph validation (for example: /sites/MySite).",
+        help="SharePoint site server-relative path for Graph validation (used only with --validate-sharepoint-access).",
     )
     parser.add_argument(
         "--sharepoint-library-name",
         metavar="LIBRARY_NAME",
-        help="Optional SharePoint document library display name to validate (for example: Documents).",
+        help="Optional SharePoint document library name to validate (used only with --validate-sharepoint-access).",
+    )
+    parser.add_argument(
+        "--validate-sharepoint-access",
+        action="store_true",
+        help="Run optional local-user SharePoint/Graph access validation. This is separate from permission assignment.",
     )
     parser.add_argument(
         "--grant-sharepoint-app-permissions",
@@ -1468,6 +1587,19 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Comma-separated Microsoft Graph application permissions to grant "
             "(default: Sites.Read.All,Files.Read.All,Group.Read.All,GroupMember.Read.All,User.Read.All)."
+        ),
+    )
+    parser.add_argument(
+        "--grant-sharepoint-delegated-permissions",
+        action="store_true",
+        help="When targeting --principal-id as ServicePrincipal, grant Microsoft Graph delegated permissions for SharePoint sync token acquisition.",
+    )
+    parser.add_argument(
+        "--sharepoint-delegated-permissions",
+        default="Sites.Read.All,Files.Read.All",
+        help=(
+            "Comma-separated Microsoft Graph delegated permissions to grant "
+            "(default: Sites.Read.All,Files.Read.All)."
         ),
     )
     parser.add_argument(
@@ -1547,16 +1679,20 @@ def main() -> None:
         args.servicebus_queue,
         "Service Bus queue name (optional; leave blank to scope at namespace)",
     )
-    sharepoint_site_hostname = _prompt_if_missing(
-        args.sharepoint_site_hostname, "SharePoint site hostname (for Graph access validation)"
-    )
-    sharepoint_site_path = _prompt_if_missing(
-        args.sharepoint_site_path, "SharePoint site path (for Graph access validation, e.g. /sites/MySite)"
-    )
-    sharepoint_library_name = _prompt_if_missing(
-        args.sharepoint_library_name,
-        "SharePoint library name (optional Graph validation, e.g. Documents)",
-    )
+    sharepoint_site_hostname: str | None = args.sharepoint_site_hostname
+    sharepoint_site_path: str | None = args.sharepoint_site_path
+    sharepoint_library_name: str | None = args.sharepoint_library_name
+    if args.validate_sharepoint_access and not args.principal_id:
+        sharepoint_site_hostname = _prompt_if_missing(
+            args.sharepoint_site_hostname, "SharePoint site hostname (for Graph access validation)"
+        )
+        sharepoint_site_path = _prompt_if_missing(
+            args.sharepoint_site_path, "SharePoint site path (for Graph access validation, e.g. /sites/MySite)"
+        )
+        sharepoint_library_name = _prompt_if_missing(
+            args.sharepoint_library_name,
+            "SharePoint library name (optional Graph validation, e.g. Documents)",
+        )
 
     # Assign roles
     if cosmos_account:
@@ -1636,15 +1772,27 @@ def main() -> None:
     else:
         print_skip("SharePoint / Graph App Permissions")
 
-    # SharePoint/Graph access check applies to local user workflow only.
-    # When --principal-id is provided, the target identity may not be interactive,
-    # so Graph validation of user/library access is skipped.
-    if sharepoint_site_hostname and sharepoint_site_path and not args.principal_id:
-        setup_sharepoint_access(sharepoint_site_hostname, sharepoint_site_path, sharepoint_library_name)
-    elif not sharepoint_site_hostname and not sharepoint_site_path:
+    if args.grant_sharepoint_delegated_permissions:
+        requested_delegated_permissions = [
+            p.strip() for p in (args.sharepoint_delegated_permissions or "").split(",") if p.strip()
+        ]
+        setup_sharepoint_delegated_permissions(
+            principal_id=principal_id,
+            principal_type=args.principal_type,
+            permission_values=requested_delegated_permissions,
+        )
+    else:
+        print_skip("SharePoint / Graph Delegated Permissions")
+
+    # SharePoint/Graph access validation applies to local user workflows only and is opt-in.
+    # When --principal-id is provided, the target identity may not be interactive, so validation is skipped.
+    if args.validate_sharepoint_access and not args.principal_id:
+        if sharepoint_site_hostname and sharepoint_site_path:
+            setup_sharepoint_access(sharepoint_site_hostname, sharepoint_site_path, sharepoint_library_name)
+        else:
+            print_skip("SharePoint / Graph Access (both hostname and site path are required)")
+    else:
         print_skip("SharePoint / Graph Access")
-    elif not args.principal_id:
-        print_skip("SharePoint / Graph Access (both hostname and site path are required)")
 
     print_summary(args)
 

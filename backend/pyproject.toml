@@ -42,6 +42,7 @@ dependencies = [
     "opentelemetry-api==1.40.0",
     "opentelemetry-sdk==1.40.0",
     "opentelemetry-semantic-conventions-ai==0.4.13",
+    "PyJWT[crypto]==2.10.1",
 ]
 
 [project.optional-dependencies]

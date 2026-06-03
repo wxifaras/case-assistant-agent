@@ -102,6 +102,8 @@ async def health_check(
                     "enable_cors": settings.api.enable_cors,
                     "enable_docs": settings.api.enable_docs,
                     "enable_auth": settings.api.enable_auth,
+                    "require_jwt_validation": settings.api.require_jwt_validation,
+                    "obo_enabled": settings.api.obo_enabled,
                 },
             },
         }
