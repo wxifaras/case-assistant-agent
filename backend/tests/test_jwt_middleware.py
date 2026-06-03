@@ -8,7 +8,9 @@ Covers the get_sync_graph_access_token dependency for all execution paths:
 - Invalid JWT (require_jwt_validation=true): raises HTTP 401.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -24,16 +26,21 @@ from app.core.settings import Settings
 
 def _make_settings(*, require_jwt_validation: bool = False, obo_enabled: bool = False) -> Settings:
     """Return a minimal Settings object with the given JWT flags."""
-    settings = MagicMock(spec=Settings)
-    settings.api.require_jwt_validation = require_jwt_validation
-    settings.api.obo_enabled = obo_enabled
-    settings.api.auth_audience = None
-    settings.api.obo_graph_scope = "https://graph.microsoft.com/.default"
-    settings.api.allowed_app_client_ids = None
-    settings.azure_tenant_id = "tenant-id"
-    settings.azure_client_id = "client-id"
-    settings.azure_client_secret = "client-secret"
-    return settings
+    return cast(
+        Settings,
+        SimpleNamespace(
+            api=SimpleNamespace(
+                require_jwt_validation=require_jwt_validation,
+                obo_enabled=obo_enabled,
+                auth_audience=None,
+                obo_graph_scope="https://graph.microsoft.com/.default",
+                allowed_app_client_ids=None,
+            ),
+            azure_tenant_id="tenant-id",
+            azure_client_id="client-id",
+            azure_client_secret="client-secret",
+        ),
+    )
 
 
 def _credentials(token: str) -> HTTPAuthorizationCredentials:

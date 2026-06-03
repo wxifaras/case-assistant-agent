@@ -79,7 +79,6 @@ async def call_sync_site(
     print(f"[{label}] Authorization header: {'Bearer <token>' if bearer_token else '(none)'}")
     print(f"[{label}] Sending request...", flush=True)
 
-    port = api_base.split(":")[-1] if ":" in api_base else "80"
     try:
         async with httpx.AsyncClient(timeout=None) as client:
             resp = await client.post(
@@ -110,7 +109,7 @@ async def call_sync_site(
 async def run(
     flow: str, client_id: str, tenant_id: str, scope: str, api_base: str, sync_site_path: str, site_url: str
 ) -> None:
-    kwargs = dict(api_base=api_base, sync_site_path=sync_site_path, site_url=site_url)
+    kwargs = {"api_base": api_base, "sync_site_path": sync_site_path, "site_url": site_url}
 
     if flow in ("app-only", "both"):
         print("\n=== Test: App-only flow (no bearer token) ===")

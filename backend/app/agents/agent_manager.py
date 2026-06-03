@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 from azure.ai.projects.aio import AIProjectClient
 from azure.ai.projects.models import (
@@ -12,7 +12,6 @@ from azure.ai.projects.models import (
     AzureAISearchToolResource,
     MCPTool,
     PromptAgentDefinition,
-    Tool,
 )
 from azure.core.exceptions import ResourceNotFoundError
 from azure.identity.aio import DefaultAzureCredential
@@ -67,9 +66,7 @@ class AgentManager:
         conn = await client.connections.get(connection_name)
         conn_id = getattr(conn, "id", None)
         if not conn_id:
-            raise RuntimeError(
-                f"Foundry connection '{connection_name}' has no id; cannot bind Azure AI Search tool"
-            )
+            raise RuntimeError(f"Foundry connection '{connection_name}' has no id; cannot bind Azure AI Search tool")
         return str(conn_id)
 
     async def _build_azure_ai_search_tool(self, tool: dict[str, Any]) -> Any:
@@ -120,9 +117,7 @@ class AgentManager:
             if not project_connection_id:
                 connection_name = idx.get("connection_name")
                 if not connection_name:
-                    raise ValueError(
-                        "azure_ai_search tool requires 'project_connection_id' or 'connection_name'"
-                    )
+                    raise ValueError("azure_ai_search tool requires 'project_connection_id' or 'connection_name'")
                 project_connection_id = await self._resolve_connection_id(connection_name)
 
             index_name = idx.get("index_name")
@@ -142,9 +137,7 @@ class AgentManager:
 
             index_resources.append(AISearchIndexResource(**resource_kwargs))
 
-        return AzureAISearchTool(
-            azure_ai_search=AzureAISearchToolResource(indexes=index_resources)
-        )
+        return AzureAISearchTool(azure_ai_search=AzureAISearchToolResource(indexes=index_resources))
 
     async def _build_tools(self, raw_tools: list[Any]) -> list[Any]:
         tools: list[Any] = []

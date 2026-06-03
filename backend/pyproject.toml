@@ -43,6 +43,7 @@ dependencies = [
     "opentelemetry-sdk==1.40.0",
     "opentelemetry-semantic-conventions-ai==0.4.13",
     "PyJWT[crypto]==2.10.1",
+    "msgraph-sdk>=1.21.0",
 ]
 
 [project.optional-dependencies]

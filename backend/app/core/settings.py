@@ -300,6 +300,10 @@ class SharePointSettings(AppConfigAwareSettings):
         ge=64 * 1024,
         description="Chunk size for streamed SharePoint download/upload transfer",
     )
+    graph_backend: str = Field(
+        default="httpx",
+        description="Graph adapter backend: 'httpx' (raw httpx, default) or 'sdk' (msgraph-sdk)",
+    )
 
 
 class ServiceBusSettings(AppConfigAwareSettings):

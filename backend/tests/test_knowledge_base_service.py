@@ -7,12 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.ingestion.search.knowledge_base_service import (
-    KnowledgeBaseService,
-    _DEFAULT_API_VERSION,
-)
+from app.ingestion.search.knowledge_base_service import _DEFAULT_API_VERSION, KnowledgeBaseService
 from app.models.config_options import KnowledgeBaseOptions, KnowledgeSourceOptions
-
 
 pytestmark = pytest.mark.unit
 
@@ -130,10 +126,7 @@ async def test_create_or_update_knowledge_base_provisions_sources_then_agent():
     assert body["outputMode"] == "extractiveData"
     assert body["retrievalReasoningEffort"] == {"kind": "medium"}
     assert body["models"][0]["azureOpenAIParameters"]["deploymentId"] == "gpt-4.1"
-    assert (
-        body["models"][0]["azureOpenAIParameters"]["resourceUri"]
-        == "https://aifwxdev001.openai.azure.com"
-    )
+    assert body["models"][0]["azureOpenAIParameters"]["resourceUri"] == "https://aifwxdev001.openai.azure.com"
     assert body["knowledgeSources"] == [{"name": "case-assistant-ks"}]
     # Legacy fields must not leak into the new resource body.
     assert "outputConfiguration" not in body
@@ -192,6 +185,4 @@ async def test_failed_put_raises_runtime_error():
         http_client=http,
     )
     with pytest.raises(RuntimeError):
-        await svc.create_or_update_knowledge_source_async(
-            KnowledgeSourceOptions(name="ks1", index_name="idx1")
-        )
+        await svc.create_or_update_knowledge_source_async(KnowledgeSourceOptions(name="ks1", index_name="idx1"))

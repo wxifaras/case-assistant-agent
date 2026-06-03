@@ -6,14 +6,21 @@ from dependency_injector import providers
 
 from app.ingestion.sharepoint import (
     SharePointFileSyncRunner,
-    SharePointGraphClient,
-    SharePointMembershipService,
-    SharePointSiteDiscoveryService,
     SharePointSyncStateStore,
     SharePointTransferService,
 )
+from app.ingestion.sharepoint.httpx_graph_adapter import HttpxGraphAdapterFactory
+from app.ingestion.sharepoint.msgraph_adapter import MsgraphGraphAdapterFactory
 from app.ingestion.sharepoint.sharepoint_sync_service import ISharePointSyncService, SharePointSyncService
 from app.services.sharepoint_sync_queue_worker import SharePointSyncQueueWorker
+
+
+def _build_graph_adapter_factory(settings):
+    """Select the correct adapter factory based on SHAREPOINT_GRAPH_BACKEND."""
+    backend = (settings.sharepoint.graph_backend or "httpx").strip().lower()
+    if backend == "sdk":
+        return MsgraphGraphAdapterFactory(settings)
+    return HttpxGraphAdapterFactory(settings)
 
 
 def build_sharepoint_providers(
@@ -34,20 +41,18 @@ def build_sharepoint_providers(
     providers.Provider,
 ]:
     """Create provider objects for SharePoint sync and queue workflows."""
-    sharepoint_membership_service: providers.Singleton[SharePointMembershipService] = providers.Singleton(
-        SharePointMembershipService,
-        graph_base_url=providers.Callable(lambda c: c.sharepoint.graph_base_url, config),
+
+    graph_adapter_factory: providers.Singleton = providers.Singleton(
+        _build_graph_adapter_factory,
+        settings=config,
     )
 
-    sharepoint_graph_client: providers.Singleton[SharePointGraphClient] = providers.Singleton(
-        SharePointGraphClient,
-        graph_base_url=providers.Callable(lambda c: c.sharepoint.graph_base_url, config),
-    )
-
-    sharepoint_site_discovery_service: providers.Singleton[SharePointSiteDiscoveryService] = providers.Singleton(
-        SharePointSiteDiscoveryService,
-        graph_base_url=providers.Callable(lambda c: c.sharepoint.graph_base_url, config),
-    )
+    # Kept as singletons so external callers that already hold references
+    # (e.g. queue worker, tests) don't break — they are no longer injected
+    # into SharePointSyncService but remain available in the container tuple.
+    sharepoint_membership_service: providers.Object = providers.Object(None)
+    sharepoint_graph_client: providers.Object = providers.Object(None)
+    sharepoint_site_discovery_service: providers.Object = providers.Object(None)
 
     sharepoint_sync_state_store: providers.Singleton[SharePointSyncStateStore] = providers.Singleton(
         SharePointSyncStateStore,
@@ -76,9 +81,7 @@ def build_sharepoint_providers(
         blob_service=blob_storage_service,
         logger=logger,
         sites_repo=sites_cosmos_repository,
-        membership_service=sharepoint_membership_service,
-        graph_client=sharepoint_graph_client,
-        site_discovery_service=sharepoint_site_discovery_service,
+        graph_adapter_factory=graph_adapter_factory,
         state_store=sharepoint_sync_state_store,
         file_sync_runner=sharepoint_file_sync_runner,
         transfer_service=sharepoint_transfer_service,

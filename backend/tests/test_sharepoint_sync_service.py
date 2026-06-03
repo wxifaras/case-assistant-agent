@@ -8,14 +8,11 @@ from app.api.schemas.sharepoint import SharePointSyncRequest
 from app.core.settings import Settings
 from app.ingestion.sharepoint import (
     SharePointFileSyncRunner,
-    SharePointGraphClient,
-    SharePointMembershipService,
-    SharePointSiteDiscoveryService,
     SharePointSyncStateStore,
     SharePointTransferService,
 )
+from app.ingestion.sharepoint.httpx_graph_adapter import _normalize_sites_search
 from app.ingestion.sharepoint.sharepoint_sync_service import SharePointSyncService
-from app.models.sharepoint import SharePointSiteMemberItem
 
 
 def _make_settings(
@@ -65,20 +62,17 @@ def _make_service(
     resolved_settings = settings or _make_settings()
     resolved_blob_service = blob_service or MagicMock()
     resolved_logger = logger or MagicMock()
-    return SharePointSyncService(
+    adapter = MagicMock()
+    factory = MagicMock()
+    factory.create_async = AsyncMock(return_value=adapter)
+    factory.close = AsyncMock()
+
+    service = SharePointSyncService(
         resolved_settings,
         resolved_blob_service,
         resolved_logger,
+        graph_adapter_factory=factory,
         sites_repo=sites_repo,
-        membership_service=SharePointMembershipService(
-            graph_base_url=resolved_settings.sharepoint.graph_base_url,
-        ),
-        graph_client=SharePointGraphClient(
-            graph_base_url=resolved_settings.sharepoint.graph_base_url,
-        ),
-        site_discovery_service=SharePointSiteDiscoveryService(
-            graph_base_url=resolved_settings.sharepoint.graph_base_url,
-        ),
         state_store=SharePointSyncStateStore(
             blob_service=resolved_blob_service,
             sites_repo=sites_repo,
@@ -95,6 +89,9 @@ def _make_service(
             download_chunk_size_bytes=resolved_settings.sharepoint.download_chunk_size_bytes,
         ),
     )
+    service._test_adapter = adapter  # type: ignore[attr-defined]
+    service._test_factory = factory  # type: ignore[attr-defined]
+    return service
 
 
 @pytest.mark.unit
@@ -165,7 +162,7 @@ def test_extract_case_code_from_site_name(site_name: str, expected: str) -> None
     ],
 )
 def test_normalize_sites_search(search: str, expected: str) -> None:
-    assert SharePointSiteDiscoveryService.normalize_sites_search(search) == expected
+    assert _normalize_sites_search(search) == expected
 
 
 @pytest.mark.unit
@@ -199,18 +196,11 @@ async def test_sync_copies_files_and_returns_summary(monkeypatch: pytest.MonkeyP
     logger = MagicMock()
 
     svc = _make_service(_make_settings(), blob_service, logger)
+    adapter = svc._test_adapter  # type: ignore[attr-defined]
 
-    async def fake_token() -> str:
-        return "token"
-
-    async def fake_site_info(headers, site_hostname, site_path) -> tuple[str, str]:
-        return "site-1", "IRISSoftware KMAutomation KM01"
-
-    async def fake_drive(headers, request, site_id, library_name) -> str:
-        return "drive-1"
-
-    async def fake_folder(headers, drive_id, folder_path) -> str:
-        return "folder-1"
+    adapter.resolve_site_info = AsyncMock(return_value=("site-1", "IRISSoftware KMAutomation KM01"))
+    adapter.resolve_drive_id = AsyncMock(return_value="drive-1")
+    adapter.resolve_folder_item_id = AsyncMock(return_value="folder-1")
 
     file_a = {
         "id": "a",
@@ -233,15 +223,11 @@ async def test_sync_copies_files_and_returns_summary(monkeypatch: pytest.MonkeyP
         "_relative_path": "b.pdf",
     }
 
-    async def fake_iter(headers, drive_id, folder_item_id):
+    async def fake_iter(drive_id, folder_item_id):
         for entry in (file_a, file_b):
             yield entry
 
-    monkeypatch.setattr(svc, "_acquire_graph_token", fake_token)
-    monkeypatch.setattr(svc, "_resolve_drive_id", fake_drive)
-    monkeypatch.setattr(svc, "_resolve_site_info", fake_site_info)
-    monkeypatch.setattr(svc, "_resolve_folder_item_id", fake_folder)
-    monkeypatch.setattr(svc, "_iter_files", fake_iter)
+    adapter.iter_files = fake_iter
     copy_download_mock = AsyncMock()
     monkeypatch.setattr(svc, "_copy_download_url_to_blob", copy_download_mock)
 
@@ -264,6 +250,7 @@ async def test_sync_records_failed_files(monkeypatch: pytest.MonkeyPatch) -> Non
     blob_service = MagicMock()
     blob_service.upload_artifact_stream = AsyncMock()
     svc = _make_service(_make_settings(), blob_service, MagicMock())
+    adapter = svc._test_adapter  # type: ignore[attr-defined]
 
     file_a = {
         "id": "a",
@@ -276,14 +263,13 @@ async def test_sync_records_failed_files(monkeypatch: pytest.MonkeyPatch) -> Non
         "_relative_path": "a.txt",
     }
 
-    async def fake_iter(headers, drive_id, folder_item_id):
+    async def fake_iter(drive_id, folder_item_id):
         yield file_a
 
-    monkeypatch.setattr(svc, "_acquire_graph_token", AsyncMock(return_value="t"))
-    monkeypatch.setattr(svc, "_resolve_site_info", AsyncMock(return_value=("site-1", "My Site KM01")))
-    monkeypatch.setattr(svc, "_resolve_drive_id", AsyncMock(return_value="d"))
-    monkeypatch.setattr(svc, "_resolve_folder_item_id", AsyncMock(return_value="f"))
-    monkeypatch.setattr(svc, "_iter_files", fake_iter)
+    adapter.resolve_site_info = AsyncMock(return_value=("site-1", "My Site KM01"))
+    adapter.resolve_drive_id = AsyncMock(return_value="d")
+    adapter.resolve_folder_item_id = AsyncMock(return_value="f")
+    adapter.iter_files = fake_iter
     monkeypatch.setattr(svc, "_copy_download_url_to_blob", AsyncMock(side_effect=RuntimeError("boom")))
 
     result = await svc.sync_site(_make_request())
@@ -300,6 +286,7 @@ async def test_sync_falls_back_to_graph_content_when_download_url_missing(monkey
     blob_service = MagicMock()
     blob_service.upload_artifact_stream = AsyncMock()
     svc = _make_service(_make_settings(), blob_service, MagicMock())
+    adapter = svc._test_adapter  # type: ignore[attr-defined]
 
     file_a = {
         "id": "a",
@@ -311,25 +298,23 @@ async def test_sync_falls_back_to_graph_content_when_download_url_missing(monkey
         "_relative_path": "a.txt",
     }
 
-    async def fake_iter(headers, drive_id, folder_item_id):
+    async def fake_iter(drive_id, folder_item_id):
         yield file_a
 
-    monkeypatch.setattr(svc, "_acquire_graph_token", AsyncMock(return_value="t"))
-    monkeypatch.setattr(svc, "_resolve_site_info", AsyncMock(return_value=("site-1", "My Site KM01")))
-    monkeypatch.setattr(svc, "_resolve_drive_id", AsyncMock(return_value="d"))
-    monkeypatch.setattr(svc, "_resolve_folder_item_id", AsyncMock(return_value="f"))
-    monkeypatch.setattr(svc, "_iter_files", fake_iter)
-    copy_drive_item_mock = AsyncMock()
-    monkeypatch.setattr(svc, "_copy_drive_item_to_blob", copy_drive_item_mock)
+    adapter.resolve_site_info = AsyncMock(return_value=("site-1", "My Site KM01"))
+    adapter.resolve_drive_id = AsyncMock(return_value="d")
+    adapter.resolve_folder_item_id = AsyncMock(return_value="f")
+    adapter.iter_files = fake_iter
+    adapter.download_file_content = AsyncMock(return_value=b"hello")
+    blob_service.upload_artifact = AsyncMock(return_value="https://blob.example/a")
 
     result = await svc.sync_site(_make_request())
 
     assert result.copied == 1
     assert result.failed == 0
-    copy_drive_item_mock.assert_awaited_once()
-    assert copy_drive_item_mock.await_args is not None
-    called_args = copy_drive_item_mock.await_args.args
-    metadata = called_args[-1]
+    blob_service.upload_artifact.assert_awaited_once()
+    assert blob_service.upload_artifact.await_args is not None
+    metadata = blob_service.upload_artifact.await_args.kwargs["metadata"]
     assert metadata["sp_case_code"] == "KM01"
 
 
@@ -341,8 +326,9 @@ async def test_sync_falls_back_to_drive_item_content_when_download_url_missing(
     blob_service = MagicMock()
     blob_service.upload_artifact_stream = AsyncMock()
     svc = _make_service(_make_settings(), blob_service, MagicMock())
+    adapter = svc._test_adapter  # type: ignore[attr-defined]
 
-    async def fake_iter(headers, drive_id, folder_item_id):
+    async def fake_iter(drive_id, folder_item_id):
         yield {
             "id": "item-123",
             "name": "a.txt",
@@ -353,19 +339,18 @@ async def test_sync_falls_back_to_drive_item_content_when_download_url_missing(
             "_relative_path": "a.txt",
         }
 
-    monkeypatch.setattr(svc, "_acquire_graph_token", AsyncMock(return_value="t"))
-    monkeypatch.setattr(svc, "_resolve_site_info", AsyncMock(return_value=("site-1", "My Site KM01")))
-    monkeypatch.setattr(svc, "_resolve_drive_id", AsyncMock(return_value="d"))
-    monkeypatch.setattr(svc, "_resolve_folder_item_id", AsyncMock(return_value="f"))
-    monkeypatch.setattr(svc, "_iter_files", fake_iter)
-    copy_drive_item_mock = AsyncMock()
-    monkeypatch.setattr(svc, "_copy_drive_item_to_blob", copy_drive_item_mock)
+    adapter.resolve_site_info = AsyncMock(return_value=("site-1", "My Site KM01"))
+    adapter.resolve_drive_id = AsyncMock(return_value="d")
+    adapter.resolve_folder_item_id = AsyncMock(return_value="f")
+    adapter.iter_files = fake_iter
+    adapter.download_file_content = AsyncMock(return_value=b"hello")
+    blob_service.upload_artifact = AsyncMock(return_value="https://blob.example/a")
 
     result = await svc.sync_site(_make_request())
 
     assert result.copied == 1
     assert result.failed == 0
-    copy_drive_item_mock.assert_awaited_once()
+    blob_service.upload_artifact.assert_awaited_once()
 
 
 @pytest.mark.unit
@@ -382,24 +367,24 @@ async def test_sync_payload_site_and_library_override_env_defaults(monkeypatch: 
         blob_service,
         MagicMock(),
     )
+    adapter = svc._test_adapter  # type: ignore[attr-defined]
 
     captured: dict[str, str | None] = {
         "site_id": None,
         "library_name": None,
     }
 
-    async def fake_site_info(headers, site_hostname, site_path) -> tuple[str, str]:
-        return "site-123", "Payload Site KM05"
+    adapter.resolve_site_info = AsyncMock(return_value=("site-123", "Payload Site KM05"))
 
-    async def fake_drive(headers, request, site_id, library_name) -> str:
+    async def fake_drive(request, site_id, library_name) -> str:
         captured["site_id"] = site_id
         captured["library_name"] = library_name
         return "drive-1"
 
-    async def fake_folder(headers, drive_id, folder_path) -> str:
-        return "folder-1"
+    adapter.resolve_drive_id = fake_drive
+    adapter.resolve_folder_item_id = AsyncMock(return_value="folder-1")
 
-    async def fake_iter(headers, drive_id, folder_item_id):
+    async def fake_iter(drive_id, folder_item_id):
         yield {
             "id": "a",
             "name": "a.txt",
@@ -411,11 +396,7 @@ async def test_sync_payload_site_and_library_override_env_defaults(monkeypatch: 
             "_relative_path": "a.txt",
         }
 
-    monkeypatch.setattr(svc, "_acquire_graph_token", AsyncMock(return_value="t"))
-    monkeypatch.setattr(svc, "_resolve_site_info", fake_site_info)
-    monkeypatch.setattr(svc, "_resolve_drive_id", fake_drive)
-    monkeypatch.setattr(svc, "_resolve_folder_item_id", fake_folder)
-    monkeypatch.setattr(svc, "_iter_files", fake_iter)
+    adapter.iter_files = fake_iter
     monkeypatch.setattr(svc, "_copy_download_url_to_blob", AsyncMock())
 
     await svc.sync_site(
@@ -436,23 +417,18 @@ async def test_sync_payload_site_and_library_override_env_defaults(monkeypatch: 
 @pytest.mark.asyncio
 async def test_list_site_members_returns_projected_members(monkeypatch: pytest.MonkeyPatch) -> None:
     svc = _make_service(_make_settings(), MagicMock(), MagicMock(), sites_repo=MagicMock())
-
-    monkeypatch.setattr(svc, "_acquire_graph_token", AsyncMock(return_value="token"))
-    monkeypatch.setattr(svc, "_resolve_site_info", AsyncMock(return_value=("site-1", "Site One")))
-
-    members = [
-        SharePointSiteMemberItem(
-            id="doc-1",
-            tenant_id="tenant-1",
-            site_id="site-1",
-            member_id="member-1",
-            display_name="Member One",
-            email="member.one@contoso.com",
-            role="owner",
-            source="graph-group-transitive-user",
-        )
-    ]
-    monkeypatch.setattr(svc, "_fetch_site_members_from_connected_group", AsyncMock(return_value=members))
+    adapter = svc._test_adapter  # type: ignore[attr-defined]
+    adapter.get_site_members = AsyncMock(
+        return_value=[
+            {
+                "member_id": "member-1",
+                "display_name": "Member One",
+                "email": "member.one@contoso.com",
+                "role": "owner",
+                "source": "graph-group-transitive-user",
+            }
+        ]
+    )
 
     result = await svc.get_site_members(
         site_hostname="contoso.sharepoint.com",
@@ -469,20 +445,13 @@ async def test_list_site_members_returns_projected_members(monkeypatch: pytest.M
 @pytest.mark.asyncio
 async def test_sync_site_prefers_delegated_graph_token(monkeypatch: pytest.MonkeyPatch) -> None:
     svc = _make_service(_make_settings(), MagicMock(), MagicMock())
+    adapter = svc._test_adapter  # type: ignore[attr-defined]
+    factory = svc._test_factory  # type: ignore[attr-defined]
+    adapter.resolve_site_info = AsyncMock(return_value=("site-123", "Delegated Site"))
+    adapter.resolve_drive_id = AsyncMock(return_value="drive-1")
+    adapter.resolve_folder_item_id = AsyncMock(return_value="folder-1")
 
-    captured: dict[str, str] = {}
-
-    async def fake_site_info(headers, site_hostname, site_path) -> tuple[str, str]:
-        captured["authorization"] = headers.get("Authorization", "")
-        return "site-123", "Delegated Site"
-
-    async def fake_drive(headers, request, site_id, library_name) -> str:
-        return "drive-1"
-
-    async def fake_folder(headers, drive_id, folder_path) -> str:
-        return "folder-1"
-
-    async def fake_iter(headers, drive_id, folder_item_id):
+    async def fake_iter(drive_id, folder_item_id):
         yield {
             "id": "a",
             "name": "a.txt",
@@ -494,12 +463,7 @@ async def test_sync_site_prefers_delegated_graph_token(monkeypatch: pytest.Monke
             "_relative_path": "a.txt",
         }
 
-    acquire_graph_token = AsyncMock(return_value="app-token-should-not-be-used")
-    monkeypatch.setattr(svc, "_acquire_graph_token", acquire_graph_token)
-    monkeypatch.setattr(svc, "_resolve_site_info", fake_site_info)
-    monkeypatch.setattr(svc, "_resolve_drive_id", fake_drive)
-    monkeypatch.setattr(svc, "_resolve_folder_item_id", fake_folder)
-    monkeypatch.setattr(svc, "_iter_files", fake_iter)
+    adapter.iter_files = fake_iter
     monkeypatch.setattr(svc, "_copy_download_url_to_blob", AsyncMock())
 
     await svc.sync_site(
@@ -507,43 +471,22 @@ async def test_sync_site_prefers_delegated_graph_token(monkeypatch: pytest.Monke
         delegated_graph_access_token="delegated-token-abc",
     )
 
-    acquire_graph_token.assert_not_awaited()
-    assert captured["authorization"] == "Bearer delegated-token-abc"
+    factory.create_async.assert_any_await("delegated-token-abc")
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_list_member_sites_returns_member_sites(monkeypatch: pytest.MonkeyPatch) -> None:
     svc = _make_service(_make_settings(), MagicMock(), MagicMock(), sites_repo=MagicMock())
-
-    monkeypatch.setattr(svc, "_acquire_graph_token", AsyncMock(return_value="token"))
-    monkeypatch.setattr(
-        svc,
-        "get_sites",
-        AsyncMock(
-            return_value=[
-                {
-                    "id": "site-1",
-                    "displayName": "Site One",
-                    "webUrl": "https://contoso.sharepoint.com/sites/site-one",
-                },
-                {
-                    "id": "site-2",
-                    "displayName": "Site Two",
-                    "webUrl": "https://contoso.sharepoint.com/sites/site-two",
-                },
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        svc,
-        "_resolve_connected_group_id",
-        AsyncMock(side_effect=["group-1", "group-2"]),
-    )
-    monkeypatch.setattr(
-        svc,
-        "_is_user_member_of_group",
-        AsyncMock(side_effect=[True, False]),
+    adapter = svc._test_adapter  # type: ignore[attr-defined]
+    adapter.get_member_sites = AsyncMock(
+        return_value=[
+            {
+                "site_id": "site-1",
+                "site_name": "Site One",
+                "web_url": "https://contoso.sharepoint.com/sites/site-one",
+            }
+        ]
     )
 
     result = await svc.get_member_sites(

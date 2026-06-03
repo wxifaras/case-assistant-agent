@@ -18,7 +18,6 @@ import uuid
 from typing import Any, Protocol
 
 import httpx
-from azure.identity.aio import DefaultAzureCredential
 
 from app.api.schemas.sharepoint import (
     SharePointMultiSiteSyncRequest,
@@ -29,12 +28,10 @@ from app.api.schemas.sharepoint import (
 from app.core.logger import Logger
 from app.core.settings import Settings
 from app.ingestion.sharepoint.file_sync_runner import SharePointFileSyncRunner
-from app.ingestion.sharepoint.graph_client import SharePointGraphClient
-from app.ingestion.sharepoint.membership_service import SharePointMembershipService
-from app.ingestion.sharepoint.site_discovery_service import SharePointSiteDiscoveryService
+from app.ingestion.sharepoint.graph_adapter import IGraphAdapterFactory
 from app.ingestion.sharepoint.state_store import SharePointSyncStateStore
 from app.ingestion.sharepoint.transfer_service import SharePointTransferService
-from app.models.sharepoint import SharePointFileSyncStateItem, SharePointSiteItem, SharePointSiteMemberItem
+from app.models.sharepoint import SharePointFileSyncStateItem
 from app.repositories.cosmos_repository import CosmosRepository
 from app.services.blob_storage_service import BlobStorageService
 
@@ -103,9 +100,7 @@ class SharePointSyncService:
         settings: Settings,
         blob_service: BlobStorageService,
         logger: Logger,
-        membership_service: SharePointMembershipService,
-        graph_client: SharePointGraphClient,
-        site_discovery_service: SharePointSiteDiscoveryService,
+        graph_adapter_factory: IGraphAdapterFactory,
         state_store: SharePointSyncStateStore,
         file_sync_runner: SharePointFileSyncRunner,
         transfer_service: SharePointTransferService,
@@ -115,11 +110,8 @@ class SharePointSyncService:
         self._blob_service = blob_service
         self._logger = logger
         self._sites_repo = sites_repo
-        self._credential: DefaultAzureCredential | None = None
         self._http: httpx.AsyncClient | None = None
-        self._membership_service = membership_service
-        self._graph_client = graph_client
-        self._site_discovery_service = site_discovery_service
+        self._factory = graph_adapter_factory
         self._state_store = state_store
         self._file_sync_runner = file_sync_runner
         self._transfer_service = transfer_service
@@ -134,18 +126,11 @@ class SharePointSyncService:
             self._http = httpx.AsyncClient(timeout=timeout)
         return self._http
 
-    def _ensure_credential(self) -> DefaultAzureCredential:
-        if self._credential is None:
-            self._credential = DefaultAzureCredential()
-        return self._credential
-
     async def close(self) -> None:
         if self._http is not None:
             await self._http.aclose()
             self._http = None
-        if self._credential is not None:
-            await self._credential.close()
-            self._credential = None
+        await self._factory.close()
 
     # ------------------------------------------------------------------ #
     # public entry point                                                 #
@@ -165,16 +150,12 @@ class SharePointSyncService:
         container = self._resolve_container(request)
         tenant_id = self._resolve_tenant_id(request.tenant_id)
 
-        token = (delegated_graph_access_token or "").strip() or await self._acquire_graph_token()
-        headers = {
-            "Authorization": f"Bearer {token}",
-            # Required for Graph $search queries used by group-member fallback.
-            "ConsistencyLevel": "eventual",
-        }
+        delegated_token = (delegated_graph_access_token or "").strip() or None
+        adapter = await self._factory.create_async(delegated_token)
 
-        site_id, resolved_site_name = await self._resolve_site_info(headers, site_hostname, site_path)
-        drive_id = await self._resolve_drive_id(headers, request, site_id, library_name)
-        folder_item_id = await self._resolve_folder_item_id(headers, drive_id, request.folder_path)
+        site_id, resolved_site_name = await adapter.resolve_site_info(site_hostname, site_path)
+        drive_id = await adapter.resolve_drive_id(request, site_id, library_name)
+        folder_item_id = await adapter.resolve_folder_item_id(drive_id, request.folder_path)
 
         # Build base site metadata for all files
         site_path_name = site_path.rstrip("/").rsplit("/", 1)[-1]
@@ -210,7 +191,7 @@ class SharePointSyncService:
         )
 
         batch_result = await self._file_sync_runner.process_files(
-            iter_files=self._iter_files(headers, drive_id, folder_item_id),
+            iter_files=adapter.iter_files(drive_id, folder_item_id),
             previous_states=previous_states,
             tenant_id=tenant_id,
             site_id=site_id,
@@ -220,10 +201,10 @@ class SharePointSyncService:
             site_name=site_name,
             site_case_code=site_case_code,
             library_name=resolved_library,
-            headers=headers,
+            headers={},
             build_sharepoint_metadata=self._build_sharepoint_metadata,
             copy_download_url_to_blob=self._copy_download_url_to_blob,
-            copy_drive_item_to_blob=self._copy_drive_item_to_blob,
+            copy_drive_item_to_blob=self._make_copy_drive_item_fn(adapter),
         )
         warnings.extend(batch_result.warnings)
 
@@ -262,17 +243,8 @@ class SharePointSyncService:
     async def get_sites(
         self, *, search: str = "*", max_results: int = 200, include_libraries: bool = False
     ) -> list[dict[str, Any]]:
-        return await self._site_discovery_service.get_sites(
-            search=search,
-            max_results=max_results,
-            include_libraries=include_libraries,
-            graph_get=self._graph_get,
-            acquire_graph_token=self._acquire_graph_token,
-        )
-
-    @staticmethod
-    def _normalize_sites_search(search: str | None) -> str:
-        return SharePointSiteDiscoveryService.normalize_sites_search(search)
+        adapter = await self._factory.create_async(None)
+        return await adapter.get_sites(search=search, max_results=max_results, include_libraries=include_libraries)
 
     async def get_member_sites(
         self,
@@ -283,17 +255,12 @@ class SharePointSyncService:
         tenant_id: str | None = None,
     ) -> list[dict[str, str]]:
         """List user site memberships directly from Graph (real-time)."""
-        return await self._membership_service.get_member_sites(
+        adapter = await self._factory.create_async(None)
+        return await adapter.get_member_sites(
             user_id=user_id,
             search=search,
             max_results=max_results,
-            tenant_id=tenant_id,
-            graph_get=self._graph_get,
-            acquire_graph_token=self._acquire_graph_token,
-            resolve_tenant_id=self._resolve_tenant_id,
-            get_sites=self.get_sites,
-            resolve_connected_group_id=self._resolve_connected_group_id,
-            is_user_member_of_group=self._is_user_member_of_group,
+            tenant_id=self._resolve_tenant_id(tenant_id),
         )
 
     async def get_site_members(
@@ -304,15 +271,11 @@ class SharePointSyncService:
         tenant_id: str | None = None,
     ) -> list[dict[str, str]]:
         """List site members directly from Graph for real-time membership checks."""
-        return await self._membership_service.get_site_members(
+        adapter = await self._factory.create_async(None)
+        return await adapter.get_site_members(
             site_hostname=site_hostname,
             site_path=site_path,
-            tenant_id=tenant_id,
-            graph_get=self._graph_get,
-            acquire_graph_token=self._acquire_graph_token,
-            resolve_tenant_id=self._resolve_tenant_id,
-            resolve_site_info=self._resolve_site_info,
-            fetch_site_members_from_connected_group=self._fetch_site_members_from_connected_group,
+            tenant_id=self._resolve_tenant_id(tenant_id),
         )
 
     # ------------------------------------------------------------------ #
@@ -380,34 +343,6 @@ class SharePointSyncService:
             )
         return hostname, path
 
-    async def _acquire_graph_token(self) -> str:
-        credential = self._ensure_credential()
-        token = await credential.get_token(self._settings.sharepoint.graph_scope)
-        return token.token
-
-    async def _resolve_drive_id(
-        self,
-        headers: dict[str, str],
-        request: SharePointSyncRequest,
-        site_id: str,
-        library_name: str | None,
-    ) -> str:
-        return await self._graph_client.resolve_drive_id(
-            graph_get=self._graph_get,
-            headers=headers,
-            request=request,
-            site_id=site_id,
-            library_name=library_name,
-        )
-
-    async def _resolve_site_info(self, headers: dict[str, str], hostname: str, site_path: str) -> tuple[str, str]:
-        return await self._graph_client.resolve_site_info(
-            graph_get=self._graph_get,
-            headers=headers,
-            hostname=hostname,
-            site_path=site_path,
-        )
-
     @staticmethod
     def _extract_case_code(site_name: str) -> str:
         """Extract trailing case code from site name (for example ``KM01``)."""
@@ -421,40 +356,6 @@ class SharePointSyncService:
         token = re.sub(r"[-_ ]", "", match.group(1))
         return token.upper()
 
-    async def _resolve_folder_item_id(
-        self,
-        headers: dict[str, str],
-        drive_id: str,
-        folder_path: str | None,
-    ) -> str:
-        return await self._graph_client.resolve_folder_item_id(
-            graph_get=self._graph_get,
-            headers=headers,
-            drive_id=drive_id,
-            folder_path=folder_path,
-        )
-
-    async def _iter_files(
-        self,
-        headers: dict[str, str],
-        drive_id: str,
-        folder_item_id: str,
-    ):
-        async for entry in self._graph_client.iter_files(
-            graph_get=self._graph_get,
-            headers=headers,
-            drive_id=drive_id,
-            folder_item_id=folder_item_id,
-        ):
-            yield entry
-
-    async def _graph_get(self, url: str, headers: dict[str, str]) -> dict[str, Any]:
-        client = self._ensure_http()
-        response = await client.get(url, headers=headers)
-        if response.status_code >= 400:
-            raise RuntimeError(f"Graph GET {url} failed with {response.status_code}: {response.text[:500]}")
-        return response.json()
-
     @classmethod
     def _new_id(cls) -> str:
         return str(uuid.uuid4())
@@ -465,10 +366,6 @@ class SharePointSyncService:
 
     @staticmethod
     def _build_site_id(existing_id: str | None = None) -> str:
-        return existing_id or SharePointSyncService._new_id()
-
-    @staticmethod
-    def _build_member_id(existing_id: str | None = None) -> str:
         return existing_id or SharePointSyncService._new_id()
 
     async def _load_previous_file_states(
@@ -531,50 +428,6 @@ class SharePointSyncService:
             library_name=library_name,
         )
 
-    async def _load_site_doc(self, *, tenant_id: str, site_id: str) -> SharePointSiteItem | None:
-        return await self._state_store.load_site_doc(tenant_id=tenant_id, site_id=site_id)
-
-    async def _fetch_site_members_from_connected_group(
-        self,
-        *,
-        headers: dict[str, str],
-        tenant_id: str,
-        site_id: str,
-        existing_members: dict[str, SharePointSiteMemberItem],
-    ) -> list[SharePointSiteMemberItem]:
-        return await self._membership_service.fetch_site_members_from_connected_group(
-            graph_get=self._graph_get,
-            headers=headers,
-            tenant_id=tenant_id,
-            site_id=site_id,
-            existing_members=existing_members,
-            resolve_connected_group_id=self._resolve_connected_group_id,
-            load_group_owner_ids=self._load_group_owner_ids,
-            build_member_id=self._build_member_id,
-        )
-
-    async def _resolve_connected_group_id(self, *, headers: dict[str, str], site_id: str) -> str | None:
-        return await self._membership_service.resolve_connected_group_id(
-            graph_get=self._graph_get,
-            headers=headers,
-            site_id=site_id,
-        )
-
-    async def _load_group_owner_ids(self, *, headers: dict[str, str], group_id: str) -> set[str]:
-        return await self._membership_service.load_group_owner_ids(
-            graph_get=self._graph_get,
-            headers=headers,
-            group_id=group_id,
-        )
-
-    async def _is_user_member_of_group(self, *, headers: dict[str, str], group_id: str, user_id: str) -> bool:
-        return await self._membership_service.is_user_member_of_group(
-            graph_get=self._graph_get,
-            headers=headers,
-            group_id=group_id,
-            user_id=user_id,
-        )
-
     def _build_sharepoint_metadata(
         self,
         site_name: str,
@@ -600,6 +453,7 @@ class SharePointSyncService:
         blob_name: str,
         metadata: dict[str, str] | None = None,
     ) -> None:
+        """Stream a pre-signed Azure Storage URL into Blob Storage (no Graph auth)."""
         await self._transfer_service.copy_download_url_to_blob(
             client=self._ensure_http(),
             download_url=download_url,
@@ -608,21 +462,23 @@ class SharePointSyncService:
             metadata=metadata,
         )
 
-    async def _copy_drive_item_to_blob(
-        self,
-        headers: dict[str, str],
-        drive_id: str,
-        item_id: str,
-        container: str,
-        blob_name: str,
-        metadata: dict[str, str] | None = None,
-    ) -> None:
-        await self._transfer_service.copy_drive_item_to_blob(
-            client=self._ensure_http(),
-            headers=headers,
-            drive_id=drive_id,
-            item_id=item_id,
-            container=container,
-            blob_name=blob_name,
-            metadata=metadata,
-        )
+    def _make_copy_drive_item_fn(self, adapter: Any) -> Any:
+        """Return a closure that downloads a drive item via *adapter* and copies to Blob."""
+
+        async def _copy(
+            headers: dict[str, str],  # kept for API compatibility with FileSyncRunner
+            drive_id: str,
+            item_id: str,
+            container: str,
+            blob_name: str,
+            metadata: dict[str, str] | None = None,
+        ) -> None:
+            content = await adapter.download_file_content(drive_id, item_id)
+            await self._blob_service.upload_artifact(
+                container=container,
+                blob_name=blob_name,
+                data=content,
+                metadata=metadata,
+            )
+
+        return _copy
