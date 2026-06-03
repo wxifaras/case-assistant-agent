@@ -1,6 +1,7 @@
 ---
 title: Case Assistant Agent
-description: Local development and setup guide for the Case Assistant Agent, including backend, frontends, ingestion pipeline, and supporting scripts.
+description: Local development and setup guide for the Case Assistant Agent, including backend, frontends, ingestion pipeline, SharePoint auth flows, and supporting scripts.
+ms.date: 2026-06-02
 ---
 
 ## Overview
@@ -229,6 +230,89 @@ Core flow:
 * Skillsets for extraction, chunking, embeddings, and multimodal enrichment
 * Indexers that project enriched content into the search index
 
+## SharePoint Authentication and Permissions
+
+The SharePoint sync pipeline supports three auth flows, controlled by two `.env` flags.
+
+### Auth flow modes
+
+| Mode | `API_REQUIRE_JWT_VALIDATION` | `API_OBO_ENABLED` | How Graph token is obtained |
+|---|---|---|---|
+| App-only (default) | `false` or `true` | any | `DefaultAzureCredential` on the server — no `Authorization` header needed from the caller |
+| Delegated / OBO | `true` | `true` | Caller sends a user JWT; server exchanges it for a Graph token via On-Behalf-Of |
+| Passthrough (dev) | `false` | any | Caller sends a raw bearer token; server forwards it to Graph without JWKS validation |
+
+### Required `.env` settings
+
+```ini
+# Validate RS256 JWT signatures from callers (set false for passthrough / local dev)
+API_REQUIRE_JWT_VALIDATION=false
+# Exchange delegated user tokens for Graph tokens via OBO (requires JWT validation)
+API_OBO_ENABLED=false
+# Required when JWT validation is enabled
+# API_AUTH_AUDIENCE=api://<your-client-id>
+# Comma-separated list of allowed caller app client IDs
+# API_ALLOWED_APP_CLIENT_IDS=<client-id-1>,<client-id-2>
+```
+
+### Microsoft Graph permissions required
+
+The identity used by the server (managed identity or service principal) needs these **application** permissions with admin consent:
+
+| Permission | Required for |
+|---|---|
+| `Sites.Read.All` | Site discovery (`GET /api/sharepoint/sites`) and resolving sync targets |
+| `Files.Read.All` | Drive and file enumeration, file download during sync |
+| `Group.Read.All` | Resolving Microsoft 365 groups connected to SharePoint sites |
+| `GroupMember.Read.All` | Transitive group members and owners for membership endpoints |
+| `User.Read.All` | Resolving user identity attributes (UPN, email) in membership responses |
+
+For the **delegated / OBO flow**, the caller app registration also needs these **delegated** permissions consented by the user or an admin:
+
+| Permission | Required for |
+|---|---|
+| `Sites.Read.All` | Delegated site and file access on behalf of the signed-in user |
+| `Files.Read.All` | Delegated file enumeration and download |
+| `Group.Read.All` | Delegated group membership lookups |
+
+The resource app registration (the one `API_AUTH_AUDIENCE` points to) must expose an `access_as_user` OAuth 2.0 scope and optionally a `Sync.Site` app role for app-only callers. Both are created by `scripts/create_service_principal.py`.
+
+### Testing auth flows locally
+
+Use `backend/tests/test_auth_flows.py` to validate each mode against a running local server:
+
+```powershell
+# App-only (server uses DefaultAzureCredential — no token needed from caller)
+& '.\backend\.venv\Scripts\python.exe' backend/tests/test_auth_flows.py --flow app-only
+
+# Delegated / OBO (opens browser; requires API_REQUIRE_JWT_VALIDATION=true + API_OBO_ENABLED=true)
+& '.\backend\.venv\Scripts\python.exe' backend/tests/test_auth_flows.py --flow delegated
+
+# Passthrough (requires API_REQUIRE_JWT_VALIDATION=false; opens browser for token)
+& '.\backend\.venv\Scripts\python.exe' backend/tests/test_auth_flows.py --flow passthrough
+```
+
+Override defaults without editing the script via CLI flags or environment variables:
+
+```powershell
+$env:TEST_SITE_URL = "https://contoso.sharepoint.com/sites/MySite"
+& '.\backend\.venv\Scripts\python.exe' backend/tests/test_auth_flows.py --flow app-only
+
+# Or fully via flags
+& '.\backend\.venv\Scripts\python.exe' backend/tests/test_auth_flows.py `
+    --flow delegated `
+    --client-id <client-id> `
+    --tenant-id <tenant-id> `
+    --site-url https://contoso.sharepoint.com/sites/MySite
+```
+
+The `GET /api/health` endpoint reports the active auth settings:
+
+```powershell
+(Invoke-RestMethod 'http://localhost:8000/api/health').api |
+    Select-Object require_jwt_validation, obo_enabled
+```
+
 ## SharePoint Delta Sync and Scheduling
 
 SharePoint sync now uses delta tracking and queue-based orchestration.
@@ -413,8 +497,14 @@ Scripts are in `scripts/`:
 
 * `create_service_principal.py`
   * Creates or reuses an Entra app registration and service principal
+  * Adds the `access_as_user` OAuth 2.0 delegated scope to the app registration
+  * Adds the `Sync.Site` application role for app-only callers
   * Optional: creates a client secret for local service principal auth
   * Prints identifiers needed by RBAC setup (`app_id`, `service_principal_object_id`)
+* `backend/tests/test_auth_flows.py`
+  * End-to-end test script for all three SharePoint auth flow modes (app-only, delegated, passthrough)
+  * Supports `--flow`, `--client-id`, `--tenant-id`, `--api-base`, `--site-url` flags
+  * Falls back to `TEST_*` environment variables when flags are not supplied
 * `setup_rbac.py`
   * Assigns Azure RBAC roles for local development and SharePoint sync dependencies
   * Can target the signed-in user or a specific principal via `--principal-id`
@@ -453,7 +543,7 @@ python scripts/setup_cosmos_rbac.py --resource-group <resource-group> --account-
 ## Known Limitations
 
 * Protected or encrypted Office documents can fail ingestion depending on protection mode and policy.
-* Authentication is configurable, but local defaults may run with API auth disabled unless enabled in configuration.
+* SharePoint sync runs with `API_REQUIRE_JWT_VALIDATION=false` by default (app-only / passthrough mode). Set to `true` and configure `API_AUTH_AUDIENCE` to enforce JWT validation for delegated callers.
 * The `docs/` folder is currently minimal. Most implementation guidance is in source and this README.
 
 ## Troubleshooting
