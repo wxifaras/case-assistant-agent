@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.api.routes import sharepoint
-from app.api.schemas.sharepoint import SharePointSyncRequest
+from app.api.schemas.sharepoint import SharePointMultiSiteSyncRequest, SharePointSyncRequest
 
 
 @pytest.mark.unit
@@ -226,3 +226,71 @@ async def test_sync_site_passes_delegated_bearer_token_to_service() -> None:
     args, kwargs = service.sync_site.await_args
     assert args[0] is request
     assert kwargs["delegated_graph_access_token"] == "delegated-token-123"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_sync_multi_returns_success_payload() -> None:
+    service = MagicMock()
+    request = SharePointMultiSiteSyncRequest(sites=[SharePointSyncRequest()])
+    service.sync = AsyncMock(
+        return_value=MagicMock(
+            model_dump=MagicMock(
+                return_value={
+                    "tenant_id": "tenant-1",
+                    "total_sites": 1,
+                    "succeeded_sites": 1,
+                    "failed_sites": 0,
+                    "results": [],
+                    "errors": [],
+                }
+            )
+        )
+    )
+
+    response = await sharepoint.sync(
+        request_body=request,
+        sharepoint_service=service,
+        bearer_token=None,
+        logger=MagicMock(),
+    )
+
+    assert response.status_code == 200
+    payload = json.loads(bytes(response.body).decode("utf-8"))
+    assert payload["message"] == "SharePoint multi-site sync completed"
+    assert payload["data"]["total_sites"] == 1
+    service.sync.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_sync_multi_passes_delegated_bearer_token_to_service() -> None:
+    service = MagicMock()
+    request = SharePointMultiSiteSyncRequest(sites=[SharePointSyncRequest()])
+    service.sync = AsyncMock(
+        return_value=MagicMock(
+            model_dump=MagicMock(
+                return_value={
+                    "tenant_id": "tenant-1",
+                    "total_sites": 1,
+                    "succeeded_sites": 1,
+                    "failed_sites": 0,
+                    "results": [],
+                    "errors": [],
+                }
+            )
+        )
+    )
+
+    response = await sharepoint.sync(
+        request_body=request,
+        sharepoint_service=service,
+        bearer_token="delegated-token-456",
+        logger=MagicMock(),
+    )
+
+    assert response.status_code == 200
+    service.sync.assert_awaited_once()
+    args, kwargs = service.sync.await_args
+    assert args[0] is request
+    assert kwargs["delegated_graph_access_token"] == "delegated-token-456"
