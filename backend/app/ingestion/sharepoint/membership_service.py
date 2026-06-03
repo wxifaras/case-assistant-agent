@@ -49,12 +49,11 @@ class SharePointMembershipService:
             if not site_id:
                 continue
 
-            group_id = await resolve_connected_group_id(graph_get=graph_get, headers=headers, site_id=site_id)
+            group_id = await resolve_connected_group_id(headers=headers, site_id=site_id)
             if not group_id:
                 continue
 
             is_member = await is_user_member_of_group(
-                graph_get=graph_get,
                 headers=headers,
                 group_id=group_id,
                 user_id=identifier,
@@ -97,9 +96,8 @@ class SharePointMembershipService:
             "ConsistencyLevel": "eventual",
         }
 
-        site_id, _ = await resolve_site_info(graph_get=graph_get, headers=headers, hostname=hostname, site_path=path)
+        site_id, _ = await resolve_site_info(headers=headers, hostname=hostname, site_path=path)
         members = await fetch_site_members_from_connected_group(
-            graph_get=graph_get,
             headers=headers,
             tenant_id=resolved_tenant_id,
             site_id=site_id,
@@ -130,11 +128,11 @@ class SharePointMembershipService:
         load_group_owner_ids: Callable[..., Awaitable[set[str]]],
         build_member_id: Callable[[str | None], str],
     ) -> list[SharePointSiteMemberItem]:
-        group_id = await resolve_connected_group_id(graph_get=graph_get, headers=headers, site_id=site_id)
+        group_id = await resolve_connected_group_id(headers=headers, site_id=site_id)
         if not group_id:
             return []
 
-        owner_ids = await load_group_owner_ids(graph_get=graph_get, headers=headers, group_id=group_id)
+        owner_ids = await load_group_owner_ids(headers=headers, group_id=group_id)
         members: list[SharePointSiteMemberItem] = []
 
         url: str | None = (

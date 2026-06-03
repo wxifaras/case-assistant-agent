@@ -119,8 +119,12 @@ async def run(
     if flow in ("passthrough", "both"):
         print("\n=== Test: Passthrough flow (raw token, no OBO) ===")
         print("NOTE: requires API_REQUIRE_JWT_VALIDATION=false on the server")
+        print("NOTE: acquires Graph-scoped token directly (audience=graph.microsoft.com)")
         try:
-            token = get_delegated_token(client_id, tenant_id, scope)
+            # Passthrough forwards the token raw to Graph, so it must carry Graph audience.
+            # The delegated (OBO) flow uses the app scope and lets the server exchange it.
+            graph_scope = "https://graph.microsoft.com/Sites.Read.All"
+            token = get_delegated_token(client_id, tenant_id, graph_scope)
             await call_sync_site(token, "passthrough", **kwargs)
         except ImportError:
             print("azure-identity not installed. Run: pip install azure-identity", file=sys.stderr)
