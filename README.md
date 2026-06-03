@@ -1,7 +1,7 @@
 ---
 title: Case Assistant Agent
 description: Local development and setup guide for the Case Assistant Agent, including backend, frontends, ingestion pipeline, SharePoint auth flows, and supporting scripts.
-ms.date: 2026-06-02
+ms.date: 2026-06-03
 ---
 
 ## Overview
@@ -14,6 +14,7 @@ Case Assistant Agent is an Azure-based, agentic RAG application built on **Found
 * An Azure AI Search ingestion pipeline that processes blob content into a vector-enabled index
 * A Foundry IQ knowledge base wired to the Azure AI Search index, surfaced to the Foundry agent via the native `azure_ai_search` tool
 * A SharePoint delta-sync pipeline with scheduled queue-based execution
+* A protocol-based SharePoint Graph adapter layer with swappable backends (`httpx` or Microsoft Graph SDK)
 * A Service Bus queue worker that runs SharePoint sync jobs and conditionally triggers indexers
 * Cosmos DB chat history storage with hierarchical partition keys
 * A Foundry hosted agent (deployed via `scripts/deploy_agent.py`) that performs retrieval through Foundry IQ at runtime
@@ -176,6 +177,8 @@ Sync routes:
 * `POST /api/sharepoint/sites/sync`
   * Runs sync for multiple sites in one request
 
+Both sync routes use the same auth dependency (`get_sync_graph_access_token`) and pass the resolved delegated token into the sync service when present.
+
 Single-site sync payload example:
 
 ```json
@@ -243,6 +246,21 @@ The SharePoint sync pipeline supports three auth flows, controlled by two `.env`
 | Delegated / OBO | `true` | `true` | Caller sends a user JWT; server exchanges it for a Graph token via On-Behalf-Of |
 | Passthrough (dev) | `false` | any | Caller sends a raw bearer token; server forwards it to Graph without JWKS validation |
 
+### Graph backend selection
+
+SharePoint Graph calls are routed through a factory-selected adapter backend.
+
+| Setting | Values | Default | Behavior |
+|---|---|---|---|
+| `SHAREPOINT_GRAPH_BACKEND` | `httpx`, `sdk` | `httpx` | Selects raw `httpx` Graph calls or Microsoft Graph SDK implementation |
+
+Implementation files:
+
+* `backend/app/ingestion/sharepoint/graph_adapter.py` (protocols)
+* `backend/app/ingestion/sharepoint/httpx_graph_adapter.py`
+* `backend/app/ingestion/sharepoint/msgraph_adapter.py`
+* `backend/app/core/container_group_sharepoint.py` (factory wiring)
+
 ### Required `.env` settings
 
 ```ini
@@ -291,6 +309,10 @@ Use `backend/tests/test_auth_flows.py` to validate each mode against a running l
 
 # Passthrough (requires API_REQUIRE_JWT_VALIDATION=false; opens browser for token)
 & '.\backend\.venv\Scripts\python.exe' backend/tests/test_auth_flows.py --flow passthrough
+
+# Use Graph SDK backend while testing (optional)
+$env:SHAREPOINT_GRAPH_BACKEND = "sdk"
+& '.\backend\.venv\Scripts\python.exe' backend/tests/test_auth_flows.py --flow both
 ```
 
 Override defaults without editing the script via CLI flags or environment variables:
@@ -546,6 +568,7 @@ python scripts/setup_cosmos_rbac.py --resource-group <resource-group> --account-
 
 * Protected or encrypted Office documents can fail ingestion depending on protection mode and policy.
 * SharePoint sync runs with `API_REQUIRE_JWT_VALIDATION=false` by default (app-only / passthrough mode). Set to `true` and configure `API_AUTH_AUDIENCE` to enforce JWT validation for delegated callers.
+* SharePoint Graph backend defaults to `httpx`. Set `SHAREPOINT_GRAPH_BACKEND=sdk` to use the Microsoft Graph SDK adapter.
 * The `docs/` folder is currently minimal. Most implementation guidance is in source and this README.
 
 ## Troubleshooting
