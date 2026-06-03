@@ -7,6 +7,7 @@ from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 
 from app.api.dependencies import get_logger, get_sharepoint_sync_service
+from app.api.jwt_middleware import get_sync_graph_access_token
 from app.api.schemas.sharepoint import SharePointMultiSiteSyncRequest, SharePointSyncRequest
 from app.ingestion.sharepoint.sharepoint_sync_service import ISharePointSyncService
 
@@ -159,6 +160,7 @@ async def get_site_members(
 async def sync_site(
     request_body: SharePointSyncRequest = Body(...),
     sharepoint_service: ISharePointSyncService = Depends(get_sharepoint_sync_service),
+    bearer_token: str | None = Depends(get_sync_graph_access_token),
     logger=Depends(get_logger),
 ) -> JSONResponse:
     """Sync one SharePoint site into Blob storage.
@@ -167,7 +169,7 @@ async def sync_site(
     """
     logger.info("SharePoint single-site sync endpoint triggered")
     try:
-        result = await sharepoint_service.sync_site(request_body)
+        result = await sharepoint_service.sync_site(request_body, delegated_graph_access_token=bearer_token)
         return success("SharePoint sync completed", result.model_dump())
     except ValueError as e:
         logger.warning(f"Invalid single-site sync request: {e}")
@@ -184,12 +186,13 @@ async def sync_site(
 async def sync(
     request_body: SharePointMultiSiteSyncRequest = Body(...),
     sharepoint_service: ISharePointSyncService = Depends(get_sharepoint_sync_service),
+    bearer_token: str | None = Depends(get_sync_graph_access_token),
     logger=Depends(get_logger),
 ) -> JSONResponse:
     """Sync multiple SharePoint sites sequentially."""
     logger.info("SharePoint multi-site sync endpoint triggered")
     try:
-        result = await sharepoint_service.sync(request_body)
+        result = await sharepoint_service.sync(request_body, delegated_graph_access_token=bearer_token)
         return success("SharePoint multi-site sync completed", result.model_dump())
     except ValueError as e:
         logger.warning(f"Invalid multi-site sync request: {e}")

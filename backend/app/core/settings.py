@@ -329,6 +329,26 @@ class APISettings(AppConfigAwareSettings):
     port: int = Field(default=8000, description="API port")
     rate_limit_per_minute: int = Field(default=60, description="Rate limit per user per minute")
     enable_auth: bool = Field(default=False, description="Enable authentication")
+    require_jwt_validation: bool = Field(
+        default=False,
+        description="When true, enforce JWT signature validation and OBO for delegated tokens. When false (dev mode), pass bearer tokens through to services unchanged.",
+    )
+    auth_audience: str | None = Field(
+        default=None,
+        description="Expected JWT audience for API bearer tokens (defaults to api://AZURE_CLIENT_ID and AZURE_CLIENT_ID). Only used when require_jwt_validation=true.",
+    )
+    obo_enabled: bool = Field(
+        default=False,
+        description="Enable Graph On-Behalf-Of token exchange for delegated user tokens. Only used when require_jwt_validation=true.",
+    )
+    obo_graph_scope: str = Field(
+        default="https://graph.microsoft.com/.default",
+        description="Scope used when exchanging delegated user tokens for Graph via OBO. Only used when require_jwt_validation=true.",
+    )
+    allowed_app_client_ids: str | None = Field(
+        default=None,
+        description="Optional comma-separated allowlist of app client IDs allowed to call app-only protected endpoints. Only used when require_jwt_validation=true.",
+    )
 
     # CORS settings
     enable_cors: bool = Field(default=True, description="Enable CORS (Cross-Origin Resource Sharing)")

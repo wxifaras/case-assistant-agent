@@ -69,11 +69,19 @@ class ISharePointSyncService(Protocol):
         """Return site members directly from Graph for real-time checks."""
         ...
 
-    async def sync_site(self, request: SharePointSyncRequest) -> SharePointSyncResponse:
+    async def sync_site(
+        self,
+        request: SharePointSyncRequest,
+        delegated_graph_access_token: str | None = None,
+    ) -> SharePointSyncResponse:
         """Run a delta-aware sync for a single SharePoint site."""
         ...
 
-    async def sync(self, request: SharePointMultiSiteSyncRequest) -> SharePointMultiSiteSyncResponse:
+    async def sync(
+        self,
+        request: SharePointMultiSiteSyncRequest,
+        delegated_graph_access_token: str | None = None,
+    ) -> SharePointMultiSiteSyncResponse:
         """Run sync sequentially for multiple site requests."""
         ...
 
@@ -143,7 +151,11 @@ class SharePointSyncService:
     # public entry point                                                 #
     # ------------------------------------------------------------------ #
 
-    async def sync_site(self, request: SharePointSyncRequest) -> SharePointSyncResponse:
+    async def sync_site(
+        self,
+        request: SharePointSyncRequest,
+        delegated_graph_access_token: str | None = None,
+    ) -> SharePointSyncResponse:
         """Run a delta-aware sync from SharePoint to Blob storage."""
         started = time.monotonic()
         warnings: list[str] = []
@@ -153,7 +165,7 @@ class SharePointSyncService:
         container = self._resolve_container(request)
         tenant_id = self._resolve_tenant_id(request.tenant_id)
 
-        token = await self._acquire_graph_token()
+        token = (delegated_graph_access_token or "").strip() or await self._acquire_graph_token()
         headers = {
             "Authorization": f"Bearer {token}",
             # Required for Graph $search queries used by group-member fallback.
@@ -307,7 +319,11 @@ class SharePointSyncService:
     # helpers                                                            #
     # ------------------------------------------------------------------ #
 
-    async def sync(self, request: SharePointMultiSiteSyncRequest) -> SharePointMultiSiteSyncResponse:
+    async def sync(
+        self,
+        request: SharePointMultiSiteSyncRequest,
+        delegated_graph_access_token: str | None = None,
+    ) -> SharePointMultiSiteSyncResponse:
         """Run sync sequentially for multiple sites."""
         results: list[SharePointSyncResponse] = []
         errors: list[str] = []
@@ -317,7 +333,10 @@ class SharePointSyncService:
         for site_request in request.sites:
             effective_request = site_request.model_copy(update={"tenant_id": tenant_id})
             try:
-                result = await self.sync_site(effective_request)
+                result = await self.sync_site(
+                    effective_request,
+                    delegated_graph_access_token=delegated_graph_access_token,
+                )
                 results.append(result)
                 succeeded_sites += 1
             except Exception as exc:

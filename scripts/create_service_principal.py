@@ -22,6 +22,7 @@ import argparse
 import json
 import subprocess
 import sys
+import uuid
 from typing import Any
 
 
@@ -133,6 +134,91 @@ def create_app(display_name: str, sign_in_audience: str) -> dict[str, Any]:
     return result
 
 
+def get_app(app_id: str) -> dict[str, Any]:
+    ok, result = _run_json(["az", "ad", "app", "show", "--id", app_id, "-o", "json"])
+    if not ok or not isinstance(result, dict):
+        print(f"Failed to retrieve app registration '{app_id}': {result}", file=sys.stderr)
+        sys.exit(1)
+    return result
+
+
+def patch_app(app_object_id: str, body: dict[str, Any]) -> None:
+    ok, output = _run_str(
+        [
+            "az",
+            "rest",
+            "--method",
+            "PATCH",
+            "--uri",
+            f"https://graph.microsoft.com/v1.0/applications/{app_object_id}",
+            "--headers",
+            "Content-Type=application/json",
+            "--body",
+            json.dumps(body),
+        ]
+    )
+    if not ok:
+        print(f"Failed to patch app registration: {output}", file=sys.stderr)
+        sys.exit(1)
+
+
+def ensure_api_scope_access_as_user(app: dict[str, Any]) -> bool:
+    app_object_id = str(app.get("id") or "")
+    if not app_object_id:
+        print("App registration payload missing object id.", file=sys.stderr)
+        sys.exit(1)
+
+    api_obj = app.get("api")
+    api = api_obj if isinstance(api_obj, dict) else {}
+    scopes_obj = api.get("oauth2PermissionScopes")
+    scopes = scopes_obj if isinstance(scopes_obj, list) else []
+    for scope in scopes:
+        if isinstance(scope, dict) and scope.get("value") == "access_as_user":
+            return False
+
+    new_scope = {
+        "id": str(uuid.uuid4()),
+        "adminConsentDescription": ("Allow the application to access this API on behalf of the signed-in user."),
+        "adminConsentDisplayName": "Access API as user",
+        "isEnabled": True,
+        "type": "User",
+        "userConsentDescription": "Allow the application to access this API on your behalf.",
+        "userConsentDisplayName": "Access API as you",
+        "value": "access_as_user",
+    }
+    updated_scopes = [*scopes, new_scope]
+    patch_app(app_object_id, {"api": {"oauth2PermissionScopes": updated_scopes}})
+    return True
+
+
+def ensure_app_role_sync_site(app: dict[str, Any]) -> bool:
+    app_object_id = str(app.get("id") or "")
+    if not app_object_id:
+        print("App registration payload missing object id.", file=sys.stderr)
+        sys.exit(1)
+
+    app_roles_obj = app.get("appRoles")
+    app_roles = app_roles_obj if isinstance(app_roles_obj, list) else []
+    for role in app_roles:
+        if not isinstance(role, dict):
+            continue
+        if role.get("value") == "Sync.Site" or role.get("displayName") == "Sync.Site":
+            return False
+
+    new_role = {
+        "allowedMemberTypes": ["Application"],
+        "description": ("Allows app-only callers to trigger SharePoint site synchronization."),
+        "displayName": "Sync.Site",
+        "id": str(uuid.uuid4()),
+        "isEnabled": True,
+        "origin": "Application",
+        "value": "Sync.Site",
+    }
+    updated_roles = [*app_roles, new_role]
+    patch_app(app_object_id, {"appRoles": updated_roles})
+    return True
+
+
 def ensure_app(display_name: str, sign_in_audience: str) -> tuple[dict[str, Any], bool]:
     existing = find_app_by_name(display_name)
     if existing is not None:
@@ -231,6 +317,12 @@ def main() -> None:
         print("App registration result did not contain appId/id.", file=sys.stderr)
         sys.exit(1)
 
+    app_full = get_app(app_id)
+    scope_added = ensure_api_scope_access_as_user(app_full)
+    if scope_added:
+        app_full = get_app(app_id)
+    role_added = ensure_app_role_sync_site(app_full)  # pylint: disable=unused-variable
+
     service_principal, sp_created = ensure_service_principal(app_id)
     service_principal_object_id = str(service_principal.get("id") or "")
     if not service_principal_object_id:
@@ -249,6 +341,8 @@ def main() -> None:
         "display_name": args.name,
         "app_created": app_created,
         "service_principal_created": sp_created,
+        "api_scope_access_as_user_added": scope_added,
+        "app_role_sync_site_added": role_added,
         "app_id": app_id,
         "app_object_id": app_object_id,
         "service_principal_object_id": service_principal_object_id,
@@ -266,6 +360,8 @@ def main() -> None:
     print(f"  subscription: {summary['subscription_name']} ({summary['subscription_id']})")
     print(f"  app created: {app_created}")
     print(f"  service principal created: {sp_created}")
+    print(f"  access_as_user scope added: {scope_added}")
+    print(f"  Sync.Site app role added: {role_added}")
     print(f"  app id (client id): {app_id}")
     print(f"  app object id: {app_object_id}")
     print(f"  service principal object id: {service_principal_object_id}")
