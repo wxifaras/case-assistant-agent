@@ -21,6 +21,11 @@ definition:
     6. Use plain text only — no markdown or special formatting.
   temperature: 0.2
   top_p: 1.0
+  # Force the model to always invoke a tool (azure_ai_search) before answering.
+  # Mirrors the Foundry portal "Choose when to use tools = Always use" setting.
+  tool_choice: required
+  # Reasoning effort applied by the model deployment (portal "Reasoning Effort").
+  reasoning_effort: medium
   tools:
     # ------------------------------------------------------------------
     # Native Azure AI Search tool bound directly to the search INDEX

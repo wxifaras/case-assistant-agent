@@ -12,6 +12,7 @@ from azure.ai.projects.models import (
     AzureAISearchToolResource,
     MCPTool,
     PromptAgentDefinition,
+    Reasoning,
 )
 from azure.core.exceptions import ResourceNotFoundError
 from azure.identity.aio import DefaultAzureCredential
@@ -160,13 +161,23 @@ class AgentManager:
 
         tools = await self._build_tools(cfg.get("tools") or [])
 
-        definition = PromptAgentDefinition(
-            model=cfg["model"],
-            instructions=cfg.get("instructions", ""),
-            temperature=cfg.get("temperature", 1.0),
-            top_p=cfg.get("top_p", 1.0),
-            tools=tools,
-        )
+        definition_kwargs: dict[str, Any] = {
+            "model": cfg["model"],
+            "instructions": cfg.get("instructions", ""),
+            "temperature": cfg.get("temperature", 1.0),
+            "top_p": cfg.get("top_p", 1.0),
+            "tools": tools,
+        }
+
+        tool_choice = cfg.get("tool_choice")
+        if tool_choice:
+            definition_kwargs["tool_choice"] = tool_choice
+
+        reasoning_effort = cfg.get("reasoning_effort")
+        if reasoning_effort:
+            definition_kwargs["reasoning"] = Reasoning(effort=reasoning_effort)
+
+        definition = PromptAgentDefinition(**definition_kwargs)
 
         existing = await self._get_agent_or_none(cfg["name"])
         operation_type = "updated" if existing is not None else "created"

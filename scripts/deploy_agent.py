@@ -384,6 +384,8 @@ async def _deploy(
         "tools": tools,
         "temperature": yaml_config["temperature"],
         "top_p": yaml_config["top_p"],
+        "tool_choice": yaml_config["tool_choice"],
+        "reasoning_effort": yaml_config["reasoning_effort"],
         "metadata": {
             "created_by": "deploy-agent-script",
             "created_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
