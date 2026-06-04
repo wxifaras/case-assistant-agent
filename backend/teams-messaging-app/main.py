@@ -1,131 +1,133 @@
-"""Minimal Teams messaging app entrypoint for local Agents Playground testing.
+"""Composition root.
+
+Builds the service graph and wires it into the Teams app. This file should
+contain no business logic — anything beyond glue belongs in a service or
+the orchestrator.
+
+Routing behaviour:
+- ``<broadcast_command>``  →  run :class:`SiteBroadcastOrchestrator`
+- anything else             →  forward to the Foundry agent with per-chat
+                              conversation history
 
 Run:
     python main.py
 
 Then in a separate terminal:
     agentsplayground -e http://localhost:3978/api/messages -c msteams
-
-`skip_auth=True` is set so the local Playground can call the messaging endpoint
-without bot app credentials. Do not use this setting outside local testing.
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
-import os
-from typing import Dict
- 
-from dotenv import load_dotenv
- 
-from azure.ai.projects import AIProjectClient
-from azure.identity import DefaultAzureCredential
- 
+
 from microsoft_teams.apps import App
 from microsoft_teams.apps.routing.activity_context import ActivityContext
 
-load_dotenv()
+from agentService import FoundryAgentService
+from boardcastOrchestrator import BroadcastResult, SiteBroadcastOrchestrator
+from config import AppConfig
+from prompt import build_prompt
+from sharepointService import SharePointService
+from teamsMessenger import TeamsMessenger
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("teams-messaging-app")
+logger = logging.getLogger(__name__)
 
 
+def _format_summary(result: BroadcastResult) -> str:
+    """Render a BroadcastResult for posting back into the Teams chat."""
+    if result.total_sites == 0:
+        return "No SharePoint sites visible to the app."
 
-PROJECT_ENDPOINT = os.getenv("PROJECT_ENDPOINT")
-AGENT_NAME = os.getenv("AGENT_NAME")  # e.g. "Coordinator-Agent"
-PORT = int(os.getenv("PORT", "3978"))
- 
-if not PROJECT_ENDPOINT or not AGENT_NAME:
-    raise RuntimeError(
-        "PROJECT_ENDPOINT and AGENT_NAME must be set in the environment "
-        "(see .env)."
+    lines = [
+        f"Broadcast complete — sites: {result.total_sites} "
+        f"(with members: {result.sites_with_members}); "
+        f"sent: {result.total_sent}, skipped: {result.total_skipped}.",
+        "",
+    ]
+    for s in result.per_site:
+        if s.error:
+            lines.append(f"- {s.site_name}: {s.error}")
+        elif s.members_total == 0:
+            lines.append(f"- {s.site_name}: no members")
+        else:
+            lines.append(
+                f"- {s.site_name}: sent={s.sent}, "
+                f"unknown={s.skipped_unknown}, "
+                f"failed={s.skipped_send_error} "
+                f"(of {s.members_total} members)"
+            )
+    return "\n".join(lines)
+
+
+async def _run() -> None:
+    config = AppConfig.from_env()
+
+    # Build services.
+    sharepoint_service = SharePointService()
+    agent_service = FoundryAgentService(
+        project_endpoint=config.project_endpoint,
+        agent_name=config.agent_name,
     )
- 
-# ---------------------------------------------------------------------------
-# Foundry / OpenAI clients
-# ---------------------------------------------------------------------------
-# DefaultAzureCredential resolves credentials from (in order): env vars,
-# managed identity, `az login`, VS Code, etc.
-project_client = AIProjectClient(
-    endpoint=PROJECT_ENDPOINT,
-    credential=DefaultAzureCredential(),
-)
-# OpenAI-compatible client used to drive the agent via the Responses API.
-openai_client = project_client.get_openai_client()
- 
-# Reference passed to every responses.create call so the conversation is
-# served by the right Foundry agent.
-AGENT_REFERENCE = {"name": AGENT_NAME, "type": "agent_reference"}
- 
-# Map Teams conversation id -> Foundry conversation id.
-# In-memory only — swap for Redis / a DB if you run multiple replicas.
-conversation_map: Dict[str, str] = {}
- 
- 
-def _get_or_create_conversation(teams_conversation_id: str) -> str:
-    """Return the Foundry conversation id bound to this Teams chat,
-    creating one on first contact."""
-    existing = conversation_map.get(teams_conversation_id)
-    if existing:
-        return existing
-    conv = openai_client.conversations.create()
-    conversation_map[teams_conversation_id] = conv.id
-    logger.info(
-        "Created Foundry conversation %s for Teams chat %s",
-        conv.id,
-        teams_conversation_id,
+
+    app = App(skip_auth=True)
+    messenger = TeamsMessenger(app)
+
+    orchestrator = SiteBroadcastOrchestrator(
+        sharepoint_service=sharepoint_service,
+        agent_service=agent_service,
+        messenger=messenger,
+        prompt_builder=build_prompt,
     )
-    return conv.id
- 
- 
-def _ask_agent(foundry_conversation_id: str, user_text: str) -> str:
-    """Send the user's message to the agent and return its text reply.
- 
-    Synchronous — call via ``asyncio.to_thread`` from async handlers.
-    """
-    response = openai_client.responses.create(
-        conversation=foundry_conversation_id,
-        extra_body={"agent_reference": AGENT_REFERENCE},
-        input=user_text,
-    )
-    # `output_text` is the convenience accessor on the Responses object.
-    return response.output_text or "(no response from agent)"
- 
- 
-# ---------------------------------------------------------------------------
-# Teams app
-# ---------------------------------------------------------------------------
-app = App(skip_auth=True)
- 
- 
-@app.on_message
-async def on_message(ctx: ActivityContext) -> None:
-    user_text = (ctx.activity.text or "").strip()
-    if not user_text:
-        return
- 
-    teams_conversation_id = ctx.activity.conversation.id
-    logger.info("Message from %s: %s", teams_conversation_id, user_text)
- 
-    foundry_conversation_id = _get_or_create_conversation(
-        teams_conversation_id
-    )
- 
-    try:
-        reply = await asyncio.to_thread(
-            _ask_agent, foundry_conversation_id, user_text
+
+    # Teams routing — handler is thin: register the user, then route.
+    @app.on_message
+    async def on_message(ctx: ActivityContext) -> None:
+        user_text = (ctx.activity.text or "").strip()
+        if not user_text:
+            return
+
+        messenger.register_user(
+            getattr(ctx.activity.from_, "aad_object_id", None),
+            ctx.activity.conversation.id,
         )
-    except Exception:
-        logger.exception("Error calling Foundry agent")
-        reply = "Sorry — I ran into a problem reaching the agent."
- 
-    await ctx.send(reply)
- 
- 
-async def main() -> None:
-    logger.info("Starting Teams app on port %s", PORT)
-    logger.info("Connected to Foundry agent '%s'", AGENT_NAME)
-    await app.start(port=PORT)
+
+        if user_text.lower() == config.broadcast_command:
+            await ctx.send(
+                "Starting site broadcast — I'll DM each site's members "
+                "and report back here."
+            )
+            try:
+                result = await orchestrator.run()
+            except Exception:
+                logger.exception("Broadcast failed")
+                await ctx.send("Broadcast failed — check server logs.")
+                return
+            await ctx.send(_format_summary(result))
+            return
+
+        try:
+            reply = await agent_service.ask_in_chat(
+                ctx.activity.conversation.id, user_text
+            )
+        except Exception:
+            logger.exception("Agent call failed")
+            reply = "Sorry — I ran into a problem reaching the agent."
+        await ctx.send(reply)
+
+    logger.info(
+        "Starting Teams app on port %s (agent='%s', broadcast='%s')",
+        config.port,
+        config.agent_name,
+        config.broadcast_command,
+    )
+    try:
+        await app.start(port=config.port)
+    finally:
+        await sharepoint_service.close()
+        await agent_service.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(_run())
