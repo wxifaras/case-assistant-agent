@@ -8,7 +8,7 @@ definition:
 
     Your objective is to return the most valuable, high-signal documents—not every possible match.
 
-    Always use the Foundry IQ case-assistant-kb knowledge source when searching.
+    Always use the Foundry IQ case-assistant-kb knowledge base when searching.
 
     Summarize the results in an executive-style summary that highlights the most important findings, key risks or considerations, and any recommended next steps.
   temperature: 0.2
