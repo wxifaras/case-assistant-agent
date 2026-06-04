@@ -51,9 +51,7 @@ class HttpxSharePointGraphAdapter:
     async def _get(self, url: str, headers: dict[str, str]) -> dict[str, Any]:
         response = await self._http.get(url, headers=headers)
         if response.status_code >= 400:
-            raise RuntimeError(
-                f"Graph GET {url} failed with {response.status_code}: {response.text[:500]}"
-            )
+            raise RuntimeError(f"Graph GET {url} failed with {response.status_code}: {response.text[:500]}")
         return response.json()
 
     # ------------------------------------------------------------------ #
@@ -261,9 +259,7 @@ class HttpxSharePointGraphAdapter:
         url = f"{self._base}/drives/{drive_id}/items/{item_id}/content"
         response = await self._http.get(url, headers=self._auth_headers(), follow_redirects=True)
         if response.status_code >= 400:
-            raise RuntimeError(
-                f"Graph GET {url} failed with {response.status_code}: {response.text[:200]}"
-            )
+            raise RuntimeError(f"Graph GET {url} failed with {response.status_code}: {response.text[:200]}")
         return response.content
 
     # ------------------------------------------------------------------ #
@@ -309,9 +305,7 @@ class HttpxSharePointGraphAdapter:
             url = payload.get("@odata.nextLink")
         return owner_ids
 
-    async def _is_user_member_of_group(
-        self, *, headers: dict[str, str], group_id: str, user_id: str
-    ) -> bool:
+    async def _is_user_member_of_group(self, *, headers: dict[str, str], group_id: str, user_id: str) -> bool:
         identifier = str(user_id or "").strip().lower()
         if not identifier:
             return False
@@ -349,8 +343,7 @@ class HttpxSharePointGraphAdapter:
         members: list[SharePointSiteMemberItem] = []
 
         url: str | None = (
-            f"{self._base}/groups/{group_id}/transitiveMembers"
-            "?$select=id,displayName,userPrincipalName,mail"
+            f"{self._base}/groups/{group_id}/transitiveMembers" "?$select=id,displayName,userPrincipalName,mail"
         )
         while url:
             payload = await self._get(url, headers)
@@ -391,7 +384,6 @@ class HttpxGraphAdapterFactory:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._credential: DefaultAzureCredential | None = None
-        self._http: httpx.AsyncClient | None = None
 
     def _ensure_http(self) -> httpx.AsyncClient:
         if self._http is None:
@@ -403,7 +395,6 @@ class HttpxGraphAdapterFactory:
         if self._credential is None:
             self._credential = DefaultAzureCredential()
         return self._credential
-
 
     async def create_async(self, delegated_token: str | None) -> SharePointGraphAdapter:
         if delegated_token:

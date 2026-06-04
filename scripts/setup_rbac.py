@@ -33,6 +33,15 @@ Roles assigned to the Search service managed identity:
   Microsoft Foundry     Cognitive Services User              AI Services account
   Microsoft Foundry     Cognitive Services OpenAI User       AI Services account
 
+Roles assigned to the Foundry project managed identity (KB MCP runtime):
+
+  Service               Role                                    Assignment scope
+  ────────────────────────────────────────────────────────────────────────────────
+  Microsoft Foundry     Cognitive Services Data Contributor (Preview)  AI Services account
+  Microsoft Foundry     Search Service Contributor              AI Services account
+  Azure AI Search       Search Index Data Contributor           Search service
+  Azure AI Search       Search Service Contributor              Search service
+
 Usage:
     python scripts/setup_rbac.py
 
@@ -949,6 +958,119 @@ def setup_search_managed_identity(
         print_skip("Cognitive Services User / OpenAI User (no AI Services account provided)")
 
 
+def setup_foundry_project_managed_identity(
+    resource_group: str,
+    project_name: str,
+    ai_services_account: Optional[str],
+    search_service: Optional[str],
+    subscription_id: str = "",
+) -> None:
+    """Grant the Foundry project's managed identity the roles it needs at agent runtime.
+
+    The KB MCP connection uses authType: ProjectManagedIdentity, so the project MI is
+    the identity that calls AI Services and AI Search when the agent invokes the
+    knowledge-base tool.
+
+    Roles assigned:
+    - Cognitive Services Data Contributor (Preview)  → AI Services account
+    - Search Service Contributor                     → AI Services account
+    - Search Index Data Contributor                  → AI Search service
+    - Search Service Contributor                     → AI Search service
+    """
+    print_section(f"Foundry Project Managed Identity  [{project_name}]")
+
+    # Resolve the project's system-assigned managed identity principal ID.
+    # A Foundry project is a child resource of the CognitiveServices account, not a standalone
+    # ML workspace. Construct the full resource ID and look it up via --ids.
+    if not ai_services_account:
+        print_error("Cannot resolve Foundry project identity: --ai-services-account is required.")
+        return
+    if not subscription_id:
+        print_error("Cannot resolve Foundry project identity: subscription_id is required.")
+        return
+    project_resource_id = (
+        f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
+        f"/providers/Microsoft.CognitiveServices/accounts/{ai_services_account}"
+        f"/projects/{project_name}"
+    )
+    ok, project = _run_json(["az", "resource", "show", "--ids", project_resource_id])
+    if not ok or not isinstance(project, dict):
+        print_error(f"Foundry project '{project_name}' not found (resource ID: {project_resource_id}).")
+        return
+
+    project_principal_id = (project.get("identity") or {}).get("principalId", "")
+    if not project_principal_id:
+        print_error(
+            f"Could not retrieve managed identity principal ID for project '{project_name}'. "
+            "Ensure the project has a system-assigned managed identity enabled."
+        )
+        return
+    print_success(f"Foundry project identity principal ID: {_c(WHITE, project_principal_id)}")
+
+    # ── AI Services account roles ──────────────────────────────────────────
+    if ai_services_account:
+        ok, ai = _run_json(
+            [
+                "az",
+                "cognitiveservices",
+                "account",
+                "show",
+                "--name",
+                ai_services_account,
+                "--resource-group",
+                resource_group,
+            ]
+        )
+        ai_id = ai.get("id", "") if isinstance(ai, dict) else ""
+        if ai_id:
+            _assign_arm_role(
+                "Cognitive Services Data Contributor (Preview)",
+                ai_id,
+                project_principal_id,
+                f"{ai_services_account} (Foundry project MI)",
+                assignee_is_object_id=True,
+            )
+            _assign_arm_role(
+                "Search Service Contributor",
+                ai_id,
+                project_principal_id,
+                f"{ai_services_account} (Foundry project MI)",
+                assignee_is_object_id=True,
+            )
+        else:
+            print_warning(f"AI Services account '{ai_services_account}' not found — skipping AI Services roles.")
+    else:
+        print_skip(
+            "Cognitive Services Data Contributor / Search Service Contributor on AI Services (no account provided)"
+        )
+
+    # ── Search service roles ───────────────────────────────────────────────
+    if search_service:
+        ok, svc = _run_json(
+            ["az", "search", "service", "show", "--name", search_service, "--resource-group", resource_group]
+        )
+        svc_id = svc.get("id", "") if isinstance(svc, dict) else ""
+        if svc_id:
+            _assign_arm_role(
+                "Search Index Data Contributor",
+                svc_id,
+                project_principal_id,
+                f"{search_service} (Foundry project MI)",
+                assignee_is_object_id=True,
+            )
+            _assign_arm_role(
+                "Search Service Contributor",
+                svc_id,
+                project_principal_id,
+                f"{search_service} (Foundry project MI)",
+                assignee_is_object_id=True,
+            )
+        else:
+            print_warning(f"Search service '{search_service}' not found — skipping Search roles.")
+    else:
+        print_skip("Search Index Data Contributor / Search Service Contributor on Search (no service provided)")
+
+
 def setup_app_config(
     resource_group: str,
     store_name: str,
@@ -1530,6 +1652,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Azure AI multi-service account name (for Document Intelligence, Language Service, etc.).",
     )
     parser.add_argument(
+        "--foundry-project",
+        metavar="PROJECT_NAME",
+        help=(
+            "Foundry project name (e.g. projDev001). When provided, resolves the project's "
+            "system-assigned managed identity and grants it the roles required for the KB MCP "
+            "connection at agent runtime: Cognitive Services Data Contributor (Preview) and "
+            "Search Service Contributor on the AI Services account, plus Search Index Data "
+            "Contributor and Search Service Contributor on the Search service."
+        ),
+    )
+    parser.add_argument(
         "--app-config-store",
         metavar="STORE_NAME",
         help="App Configuration store name (optional — skipped if not supplied).",
@@ -1735,6 +1868,20 @@ def main() -> None:
         )
     elif not search_service:
         print_skip("Search Service Managed Identity")
+
+    foundry_project = _prompt_if_missing(
+        getattr(args, "foundry_project", None), "Foundry project name (for KB MCP runtime roles)"
+    )
+    if foundry_project:
+        setup_foundry_project_managed_identity(
+            resource_group=resource_group,
+            project_name=foundry_project,
+            ai_services_account=ai_services_account,
+            search_service=search_service,
+            subscription_id=subscription_id,
+        )
+    else:
+        print_skip("Foundry Project Managed Identity")
 
     if app_config_store:
         setup_app_config(resource_group, app_config_store, principal_id, subscription_id, assignee_is_object_id)

@@ -22,9 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 try:
     from dotenv import load_dotenv  # noqa: E402
 
-    _ENV_PATH = os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "backend", ".env")
-    )
+    _ENV_PATH = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "backend", ".env"))
     if os.path.isfile(_ENV_PATH):
         load_dotenv(_ENV_PATH, override=False)
 except ImportError:
@@ -33,13 +31,13 @@ except ImportError:
 from app.agents.agent_config import load_agent_yaml  # noqa: E402
 from app.agents.agent_manager import AgentManager  # noqa: E402
 from app.core.settings import get_settings  # noqa: E402
-from app.ingestion.search.knowledge_base_service import KnowledgeBaseService  # noqa: E402
+from app.ingestion.search.knowledge_base_service import (
+    KnowledgeBaseService,  # noqa: E402
+)
 from app.models.config_options import KnowledgeBaseOptions  # noqa: E402
 
 DEFAULT_YAML_PATH = os.path.normpath(
-    os.path.join(
-        os.path.dirname(__file__), "..", "backend", "app", "agents", "case_assistant_agent.yaml"
-    )
+    os.path.join(os.path.dirname(__file__), "..", "backend", "app", "agents", "case_assistant_agent.yaml")
 )
 
 _LOG_LEVEL_MAP: dict[str, int] = {
@@ -134,11 +132,17 @@ def _lookup_account_via_az(account: str) -> tuple[str, str]:
 
     logger.info("Looking up account '%s' via 'az resource list' ...", account)
     cmd = [
-        az, "resource", "list",
-        "--resource-type", "Microsoft.CognitiveServices/accounts",
-        "--name", account,
-        "--query", "[].{id:id, resourceGroup:resourceGroup}",
-        "-o", "json",
+        az,
+        "resource",
+        "list",
+        "--resource-type",
+        "Microsoft.CognitiveServices/accounts",
+        "--name",
+        account,
+        "--query",
+        "[].{id:id, resourceGroup:resourceGroup}",
+        "-o",
+        "json",
     ]
     try:
         result = subprocess.run(
@@ -236,7 +240,7 @@ def _ensure_mcp_kb_connection(
     Uses ARM REST (PUT /connections/{name}) with ProjectManagedIdentity auth, per the
     Foundry IQ "Connect a knowledge base to Foundry Agent Service" guide.
     """
-    credential = DefaultAzureCredential()
+    credential = DefaultAzureCredential(exclude_environment_credential=True)
     token_provider = get_bearer_token_provider(credential, "https://management.azure.com/.default")
     headers = {
         "Authorization": f"Bearer {token_provider()}",
@@ -262,8 +266,7 @@ def _ensure_mcp_kb_connection(
     resp = requests.put(url, headers=headers, json=body, timeout=60)
     if resp.status_code >= 400:
         raise RuntimeError(
-            f"Failed to create/update project connection '{connection_name}': "
-            f"{resp.status_code} {resp.text}"
+            f"Failed to create/update project connection '{connection_name}': " f"{resp.status_code} {resp.text}"
         )
     logger.info("Connection '%s' created or updated successfully.", connection_name)
 
@@ -347,9 +350,7 @@ async def _deploy(
         resolved_project_resource_id = _resolve_project_resource_id(project_resource_id, endpoint)
         logger.info("Using project resource id: %s", resolved_project_resource_id)
         if not (kb_name and search_endpoint):
-            raise RuntimeError(
-                "Cannot provision Foundry IQ MCP connection without KB name and search endpoint."
-            )
+            raise RuntimeError("Cannot provision Foundry IQ MCP connection without KB name and search endpoint.")
         _ensure_mcp_kb_connection(
             project_resource_id=resolved_project_resource_id,
             connection_name=kb_connection_name,
@@ -426,9 +427,7 @@ async def _delete(endpoint: str, agent_name: str, delete_knowledge_base: bool) -
         logger.warning("SEARCH_ENDPOINT not configured; skipping KB teardown")
         return
 
-    svc = KnowledgeBaseService(
-        search_endpoint=search_endpoint, api_version=settings.knowledge_base.api_version
-    )
+    svc = KnowledgeBaseService(search_endpoint=search_endpoint, api_version=settings.knowledge_base.api_version)
     try:
         await svc.delete_knowledge_base_async(kb_options.name)
         for source in kb_options.knowledge_sources:
@@ -502,8 +501,10 @@ def main() -> None:
                 model_name=getattr(args, "model", "") or os.environ.get("FOUNDRY_MODEL", ""),
                 skip_knowledge_base=getattr(args, "skip_knowledge_base", False),
                 knowledge_base_only=getattr(args, "knowledge_base_only", False),
-                project_resource_id=getattr(args, "project_resource_id", "") or os.environ.get("FOUNDRY_PROJECT_RESOURCE_ID", ""),
-                kb_connection_name=getattr(args, "kb_connection_name", "") or os.environ.get("FOUNDRY_KB_CONNECTION_NAME", "case-assistant-kb-mcp"),
+                project_resource_id=getattr(args, "project_resource_id", "")
+                or os.environ.get("FOUNDRY_PROJECT_RESOURCE_ID", ""),
+                kb_connection_name=getattr(args, "kb_connection_name", "")
+                or os.environ.get("FOUNDRY_KB_CONNECTION_NAME", "case-assistant-kb-mcp"),
             )
         )
     elif command == "list":

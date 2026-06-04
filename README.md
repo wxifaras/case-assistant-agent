@@ -238,6 +238,29 @@ Core flow:
 
 The SharePoint sync pipeline supports three auth flows, controlled by two `.env` flags.
 
+Flag behavior:
+
+* `API_REQUIRE_JWT_VALIDATION`
+  * `false`: No JWKS signature validation is performed on incoming bearer tokens.
+  * `true`: Incoming bearer tokens are validated (issuer, audience, signature, and claims checks).
+* `API_OBO_ENABLED`
+  * `false`: Server does not perform On-Behalf-Of token exchange.
+  * `true`: Server may exchange a validated user token for a Microsoft Graph delegated token.
+
+Effective combinations:
+
+* `false` + `false`:
+  * Development passthrough mode.
+  * Caller token can be forwarded to Graph without server-side signature validation.
+* `true` + `false`:
+  * Strict app-only mode.
+  * Caller token is validated, then sync uses server identity (`DefaultAzureCredential`) for Graph.
+* `true` + `true`:
+  * Strict delegated mode.
+  * Caller user token is validated and exchanged through OBO before Graph calls.
+* `false` + `true`:
+  * Behaves as passthrough in practice because OBO requires validated JWT input.
+
 ### Auth flow modes
 
 | Mode | `API_REQUIRE_JWT_VALIDATION` | `API_OBO_ENABLED` | How Graph token is obtained |

@@ -29,6 +29,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
+from app.api.exception_handlers import register_exception_handlers
 from app.api.routes import chat, health, pipeline, sharepoint
 from app.core.container import Container
 
@@ -267,6 +268,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Register centralised exception handlers (domain + framework exceptions → Problem Details)
+    register_exception_handlers(app)
 
     # Include routers
     app.include_router(health.router, prefix="/api")

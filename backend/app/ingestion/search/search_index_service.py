@@ -186,7 +186,7 @@ class SearchIndexService(ISearchIndexService):
                 ],
             ),
             # SharePoint fields for search filtering and ranking
-            SimpleField(
+            SearchField(
                 name="sp_site_name",
                 type=SearchFieldDataType.String,
                 searchable=True,
@@ -194,7 +194,7 @@ class SearchIndexService(ISearchIndexService):
                 sortable=False,
                 facetable=False,
             ),
-            SimpleField(
+            SearchField(
                 name="sp_case_code",
                 type=SearchFieldDataType.String,
                 searchable=True,
@@ -202,7 +202,7 @@ class SearchIndexService(ISearchIndexService):
                 sortable=False,
                 facetable=True,
             ),
-            SimpleField(
+            SearchField(
                 name="sp_library_name",
                 type=SearchFieldDataType.String,
                 searchable=True,
@@ -210,7 +210,7 @@ class SearchIndexService(ISearchIndexService):
                 sortable=False,
                 facetable=False,
             ),
-            SimpleField(
+            SearchField(
                 name="sp_last_modified_utc",
                 type=SearchFieldDataType.String,
                 searchable=False,
@@ -218,7 +218,7 @@ class SearchIndexService(ISearchIndexService):
                 sortable=True,
                 facetable=False,
             ),
-            SimpleField(
+            SearchField(
                 name="sp_filename",
                 type=SearchFieldDataType.String,
                 searchable=True,
@@ -226,15 +226,15 @@ class SearchIndexService(ISearchIndexService):
                 sortable=True,
                 facetable=False,
             ),
-            SimpleField(
+            SearchField(
                 name="sp_file_path",
                 type=SearchFieldDataType.String,
-                searchable=True,
+                searchable=False,
                 filterable=True,
                 sortable=False,
                 facetable=False,
             ),
-            SimpleField(
+            SearchField(
                 name="sp_file_size_bytes",
                 type=SearchFieldDataType.String,
                 searchable=False,
