@@ -31,10 +31,12 @@ except ImportError:
 from app.agents.agent_config import load_agent_yaml  # noqa: E402
 from app.agents.agent_manager import AgentManager  # noqa: E402
 from app.core.settings import get_settings  # noqa: E402
-from app.ingestion.search.knowledge_base_service import (
-    KnowledgeBaseService,  # noqa: E402
-)
-from app.models.config_options import KnowledgeBaseOptions  # noqa: E402
+
+# --- Foundry IQ knowledge base provisioning DISABLED ---
+# from app.ingestion.search.knowledge_base_service import (
+#     KnowledgeBaseService,  # noqa: E402
+# )
+# from app.models.config_options import KnowledgeBaseOptions  # noqa: E402
 
 DEFAULT_YAML_PATH = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "backend", "app", "agents", "case_assistant_agent.yaml")
@@ -201,25 +203,26 @@ def _write_final_result(output_format: str, payload: dict[str, Any]) -> None:
         logger.error("Agent operation failed: %s", payload.get("error", "unknown error"))
 
 
-async def _provision_knowledge_base(
-    kb_options: KnowledgeBaseOptions, search_endpoint: str, api_version: str
-) -> str | None:
-    """Provision the knowledge source + knowledge agent. Returns the KB name."""
-    if not search_endpoint:
-        raise RuntimeError("SEARCH_ENDPOINT is required to provision the knowledge base")
-
-    logger.info(
-        "Provisioning knowledge base '%s' on %s (api-version=%s)",
-        kb_options.name,
-        search_endpoint,
-        api_version,
-    )
-    svc = KnowledgeBaseService(search_endpoint=search_endpoint, api_version=api_version)
-    try:
-        await svc.create_or_update_knowledge_base_async(kb_options)
-    finally:
-        await svc.close()
-    return kb_options.name
+# --- Foundry IQ knowledge base provisioning DISABLED ---
+# async def _provision_knowledge_base(
+#     kb_options: KnowledgeBaseOptions, search_endpoint: str, api_version: str
+# ) -> str | None:
+#     """Provision the knowledge source + knowledge agent. Returns the KB name."""
+#     if not search_endpoint:
+#         raise RuntimeError("SEARCH_ENDPOINT is required to provision the knowledge base")
+#
+#     logger.info(
+#         "Provisioning knowledge base '%s' on %s (api-version=%s)",
+#         kb_options.name,
+#         search_endpoint,
+#         api_version,
+#     )
+#     svc = KnowledgeBaseService(search_endpoint=search_endpoint, api_version=api_version)
+#     try:
+#         await svc.create_or_update_knowledge_base_async(kb_options)
+#     finally:
+#         await svc.close()
+#     return kb_options.name
 
 
 _ARM_CONNECTIONS_API_VERSION = "2025-10-01-preview"
@@ -335,13 +338,14 @@ async def _deploy(
     final_model = model_name or yaml_config["model"]
 
     settings = get_settings()
-    kb_options = settings.knowledge_base_options
+    # --- Foundry IQ knowledge base provisioning DISABLED ---
+    # kb_options = settings.knowledge_base_options
     search_endpoint = settings.search_service.endpoint
     kb_api_version = settings.knowledge_base.api_version
 
     kb_name: str | None = None
-    if not skip_knowledge_base:
-        kb_name = await _provision_knowledge_base(kb_options, search_endpoint, kb_api_version)
+    # if not skip_knowledge_base:
+    #     kb_name = await _provision_knowledge_base(kb_options, search_endpoint, kb_api_version)
 
     if knowledge_base_only:
         payload = {
