@@ -10,4 +10,14 @@ server {
     proxy_http_version 1.1;
     proxy_pass $REACT_APP_API_BASE_URL;
   }
+
+  # Secure server-side proxy to the Foundry Responses API.
+  # The api-key header is injected here so the secret never reaches the browser.
+  location /foundry/ {
+    proxy_ssl_server_name on;
+    proxy_http_version 1.1;
+    proxy_set_header api-key "$FOUNDRY_API_KEY";
+    rewrite ^/foundry/(.*)$ /openai/v1/$1 break;
+    proxy_pass $FOUNDRY_ENDPOINT;
+  }
 }

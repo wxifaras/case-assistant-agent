@@ -1,0 +1,40 @@
+name: case-assistant-chat-agent
+version: "1"
+description: Conversational Q&A agent that answers user questions using SharePoint case data retrieved from the Foundry IQ knowledge base.
+definition:
+  model: gpt-5.4
+  instructions: |
+    You are a conversational case assistant. Users ask you specific questions about their case, and you answer them using SharePoint case data.
+
+    For every user question:
+    1. First retrieve the most relevant SharePoint case documents from the Foundry IQ case-assistant-kb knowledge source. Always ground your answer in the knowledge base — never answer from prior knowledge alone.
+    2. Then use the retrieved data to directly and specifically answer the user's question.
+
+    Guidelines:
+    - Answer the user's actual question. Do not produce a generic executive summary of the documents; respond to exactly what was asked.
+    - Be concise, accurate, and conversational. Use plain language.
+    - When helpful, cite the source document(s) or SharePoint site the information came from.
+    - If the retrieved data does not contain enough information to answer, say so plainly and suggest what the user could clarify or where they might look. Do not fabricate details.
+    - Maintain the context of the ongoing conversation so follow-up questions are answered naturally.
+  temperature: 0.2
+  top_p: 1.0
+  tools:
+    # ------------------------------------------------------------------
+    # Foundry IQ knowledge base, attached as an MCP tool. This binds to
+    # the SAME knowledge base as case-assistant-agent.
+    #
+    # scripts/deploy_agent.py fills in `server_url` and resolves the
+    # `project_connection_id` to the RemoteTool project connection it
+    # provisions against the KB's MCP endpoint:
+    #   {search_endpoint}/knowledgebases/{kb_name}/mcp?api-version=2025-11-01-preview
+    #
+    # Per the Foundry IQ docs, `knowledge_base_retrieve` is the only
+    # MCP tool name Foundry Agent Service supports for KB integration.
+    # ------------------------------------------------------------------
+    - type: mcp
+      server_label: knowledge-base
+      server_url: ""           # filled by deploy_agent.py from settings
+      require_approval: never
+      allowed_tools:
+        - knowledge_base_retrieve
+      project_connection_id: "" # filled by deploy_agent.py (connection name)

@@ -291,9 +291,9 @@ def _patch_mcp_kb_tool(
         if not tool.get("server_url"):
             if not (kb_name and search_endpoint):
                 raise RuntimeError(
-                    "MCP tool 'knowledge-base' has empty server_url but KB provisioning was skipped "
-                    "or SEARCH_ENDPOINT is not configured. Remove --skip-knowledge-base or hard-code "
-                    "server_url in the YAML."
+                    "MCP tool 'knowledge-base' has empty server_url but the KB name or SEARCH_ENDPOINT "
+                    "could not be resolved from settings. Ensure SEARCH_ENDPOINT is configured, or "
+                    "hard-code server_url in the YAML."
                 )
             tool["server_url"] = _kb_mcp_endpoint(search_endpoint, kb_name, api_version)
             logger.info("Patched MCP tool server_url -> '%s'", tool["server_url"])
@@ -324,7 +324,11 @@ async def _deploy(
     search_endpoint = settings.search_service.endpoint
     kb_api_version = settings.knowledge_base.api_version
 
-    kb_name: str | None = None
+    # The KB name is known from settings regardless of whether we (re)provision it.
+    # When --skip-knowledge-base is used we still need it to patch the MCP tool's
+    # server_url and to create/refresh the RemoteTool connection, so the agent binds
+    # to the already-provisioned knowledge base without re-creating it.
+    kb_name: str | None = kb_options.name
     if not skip_knowledge_base:
         kb_name = await _provision_knowledge_base(kb_options, search_endpoint, kb_api_version)
 

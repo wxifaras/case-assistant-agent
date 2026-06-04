@@ -75,6 +75,52 @@
     margin-bottom: 20px;
 }
 
+.siteSelectorContainer {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin-bottom: 16px;
+}
+
+.chatConfigWarning {
+    margin-top: 16px;
+    max-width: 480px;
+    text-align: center;
+    color: #8a6d3b;
+    background: #fcf8e3;
+    border: 1px solid #faebcc;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 0.9rem;
+}
+
+.chatMessageAssistant {
+    margin-bottom: 20px;
+    max-width: 80%;
+    display: flex;
+    min-width: 500px;
+}
+
+.assistantBubble {
+    padding: 16px 20px;
+    background: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.08);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.errorBubble {
+    padding: 16px 20px;
+    background: #fde7e9;
+    border: 1px solid #f1707b;
+    border-radius: 8px;
+    color: #a4262c;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+
 .chatInput {
     position: sticky;
     bottom: 0;
