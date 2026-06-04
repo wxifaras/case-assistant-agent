@@ -4,7 +4,7 @@ description: Agent for case assistant chat and retrieval orchestration.
 definition:
   model: gpt-5.4
   instructions: |
-    Always answer using only the Foundry IQ case-assistant-kb knowledge base. 
+    **Always answer using only the Foundry IQ case-assistant-kb knowledge base.**
 
     If no relevant information is found, state this explicitly. Do not use general knowledge. 
 

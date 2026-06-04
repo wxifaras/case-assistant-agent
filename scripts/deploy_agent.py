@@ -234,11 +234,17 @@ def _ensure_mcp_kb_connection(
     project_resource_id: str,
     connection_name: str,
     mcp_endpoint: str,
+    kb_name: str,
 ) -> None:
     """Create or update a Foundry RemoteTool project connection that targets the KB MCP endpoint.
 
     Uses ARM REST (PUT /connections/{name}) with ProjectManagedIdentity auth, per the
     Foundry IQ "Connect a knowledge base to Foundry Agent Service" guide.
+
+    The ``metadata.type == "knowledgeBase_MCP"`` (plus ``knowledgeBaseName``) marker is
+    required: Foundry Agent Service only treats a RemoteTool connection as a Foundry IQ
+    knowledge base when this metadata is present. Without it the MCP tool is attached to
+    the agent but the knowledge base is never actually invoked at runtime.
     """
     credential = DefaultAzureCredential(exclude_environment_credential=True)
     token_provider = get_bearer_token_provider(credential, "https://management.azure.com/.default")
@@ -259,7 +265,10 @@ def _ensure_mcp_kb_connection(
             "target": mcp_endpoint,
             "isSharedToAll": True,
             "audience": "https://search.azure.com/",
-            "metadata": {"ApiType": "Azure"},
+            "metadata": {
+                "type": "knowledgeBase_MCP",
+                "knowledgeBaseName": kb_name,
+            },
         },
     }
     logger.info("Provisioning Foundry RemoteTool connection '%s' -> %s", connection_name, mcp_endpoint)
@@ -281,6 +290,8 @@ def _patch_mcp_kb_tool(
     """Fill the placeholder ``server_url`` / ``project_connection_id`` on the MCP KB tool entry.
 
     Returns True if at least one MCP tool was patched (i.e. the agent uses Foundry IQ).
+    ``project_connection_id`` is set to the bare connection name, matching the binding the
+    Foundry portal writes for a Foundry IQ knowledge base.
     """
     patched = False
     for tool in tools or []:
@@ -305,6 +316,7 @@ def _patch_mcp_kb_tool(
             logger.info("Patched MCP tool project_connection_id -> '%s'", connection_name)
         patched = True
     return patched
+
 
 
 async def _deploy(
@@ -355,6 +367,7 @@ async def _deploy(
             project_resource_id=resolved_project_resource_id,
             connection_name=kb_connection_name,
             mcp_endpoint=_kb_mcp_endpoint(search_endpoint, kb_name, kb_api_version),
+            kb_name=kb_name,
         )
 
     logger.info("Creating or updating prompt agent '%s' (model=%s) ...", final_name, final_model)
