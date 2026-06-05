@@ -4,3 +4,4 @@ microsoft-teams-apps==2.0.12
 azure-ai-projects>=1.0.0b10
 azure-identity>=1.19.0
 openai>=1.54.0
+httpx>=0.27.0

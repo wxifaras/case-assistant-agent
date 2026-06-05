@@ -31,10 +31,12 @@ except ImportError:
 from app.agents.agent_config import load_agent_yaml  # noqa: E402
 from app.agents.agent_manager import AgentManager  # noqa: E402
 from app.core.settings import get_settings  # noqa: E402
-from app.ingestion.search.knowledge_base_service import (
-    KnowledgeBaseService,  # noqa: E402
-)
-from app.models.config_options import KnowledgeBaseOptions  # noqa: E402
+
+# --- Foundry IQ knowledge base provisioning DISABLED ---
+# from app.ingestion.search.knowledge_base_service import (
+#     KnowledgeBaseService,  # noqa: E402
+# )
+# from app.models.config_options import KnowledgeBaseOptions  # noqa: E402
 
 DEFAULT_YAML_PATH = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "backend", "app", "agents", "case_assistant_agent.yaml")
@@ -201,25 +203,26 @@ def _write_final_result(output_format: str, payload: dict[str, Any]) -> None:
         logger.error("Agent operation failed: %s", payload.get("error", "unknown error"))
 
 
-async def _provision_knowledge_base(
-    kb_options: KnowledgeBaseOptions, search_endpoint: str, api_version: str
-) -> str | None:
-    """Provision the knowledge source + knowledge agent. Returns the KB name."""
-    if not search_endpoint:
-        raise RuntimeError("SEARCH_ENDPOINT is required to provision the knowledge base")
-
-    logger.info(
-        "Provisioning knowledge base '%s' on %s (api-version=%s)",
-        kb_options.name,
-        search_endpoint,
-        api_version,
-    )
-    svc = KnowledgeBaseService(search_endpoint=search_endpoint, api_version=api_version)
-    try:
-        await svc.create_or_update_knowledge_base_async(kb_options)
-    finally:
-        await svc.close()
-    return kb_options.name
+# --- Foundry IQ knowledge base provisioning DISABLED ---
+# async def _provision_knowledge_base(
+#     kb_options: KnowledgeBaseOptions, search_endpoint: str, api_version: str
+# ) -> str | None:
+#     """Provision the knowledge source + knowledge agent. Returns the KB name."""
+#     if not search_endpoint:
+#         raise RuntimeError("SEARCH_ENDPOINT is required to provision the knowledge base")
+#
+#     logger.info(
+#         "Provisioning knowledge base '%s' on %s (api-version=%s)",
+#         kb_options.name,
+#         search_endpoint,
+#         api_version,
+#     )
+#     svc = KnowledgeBaseService(search_endpoint=search_endpoint, api_version=api_version)
+#     try:
+#         await svc.create_or_update_knowledge_base_async(kb_options)
+#     finally:
+#         await svc.close()
+#     return kb_options.name
 
 
 _ARM_CONNECTIONS_API_VERSION = "2025-10-01-preview"
@@ -234,11 +237,17 @@ def _ensure_mcp_kb_connection(
     project_resource_id: str,
     connection_name: str,
     mcp_endpoint: str,
+    kb_name: str,
 ) -> None:
     """Create or update a Foundry RemoteTool project connection that targets the KB MCP endpoint.
 
     Uses ARM REST (PUT /connections/{name}) with ProjectManagedIdentity auth, per the
     Foundry IQ "Connect a knowledge base to Foundry Agent Service" guide.
+
+    The ``metadata.type == "knowledgeBase_MCP"`` (plus ``knowledgeBaseName``) marker is
+    required: Foundry Agent Service only treats a RemoteTool connection as a Foundry IQ
+    knowledge base when this metadata is present. Without it the MCP tool is attached to
+    the agent but the knowledge base is never actually invoked at runtime.
     """
     credential = DefaultAzureCredential(exclude_environment_credential=True)
     token_provider = get_bearer_token_provider(credential, "https://management.azure.com/.default")
@@ -259,7 +268,10 @@ def _ensure_mcp_kb_connection(
             "target": mcp_endpoint,
             "isSharedToAll": True,
             "audience": "https://search.azure.com/",
-            "metadata": {"ApiType": "Azure"},
+            "metadata": {
+                "type": "knowledgeBase_MCP",
+                "knowledgeBaseName": kb_name,
+            },
         },
     }
     logger.info("Provisioning Foundry RemoteTool connection '%s' -> %s", connection_name, mcp_endpoint)
@@ -281,6 +293,8 @@ def _patch_mcp_kb_tool(
     """Fill the placeholder ``server_url`` / ``project_connection_id`` on the MCP KB tool entry.
 
     Returns True if at least one MCP tool was patched (i.e. the agent uses Foundry IQ).
+    ``project_connection_id`` is set to the bare connection name, matching the binding the
+    Foundry portal writes for a Foundry IQ knowledge base.
     """
     patched = False
     for tool in tools or []:
@@ -307,6 +321,7 @@ def _patch_mcp_kb_tool(
     return patched
 
 
+
 async def _deploy(
     endpoint: str,
     yaml_path: str,
@@ -323,13 +338,14 @@ async def _deploy(
     final_model = model_name or yaml_config["model"]
 
     settings = get_settings()
-    kb_options = settings.knowledge_base_options
+    # --- Foundry IQ knowledge base provisioning DISABLED ---
+    # kb_options = settings.knowledge_base_options
     search_endpoint = settings.search_service.endpoint
     kb_api_version = settings.knowledge_base.api_version
 
     kb_name: str | None = None
-    if not skip_knowledge_base:
-        kb_name = await _provision_knowledge_base(kb_options, search_endpoint, kb_api_version)
+    # if not skip_knowledge_base:
+    #     kb_name = await _provision_knowledge_base(kb_options, search_endpoint, kb_api_version)
 
     if knowledge_base_only:
         payload = {
@@ -355,6 +371,7 @@ async def _deploy(
             project_resource_id=resolved_project_resource_id,
             connection_name=kb_connection_name,
             mcp_endpoint=_kb_mcp_endpoint(search_endpoint, kb_name, kb_api_version),
+            kb_name=kb_name,
         )
 
     logger.info("Creating or updating prompt agent '%s' (model=%s) ...", final_name, final_model)
@@ -367,6 +384,8 @@ async def _deploy(
         "tools": tools,
         "temperature": yaml_config["temperature"],
         "top_p": yaml_config["top_p"],
+        "tool_choice": yaml_config["tool_choice"],
+        "reasoning_effort": yaml_config["reasoning_effort"],
         "metadata": {
             "created_by": "deploy-agent-script",
             "created_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

@@ -36,6 +36,9 @@ def load_agent_yaml(yaml_path: Path | str | None = None) -> dict[str, Any]:
     if not model:
         raise ValueError("FOUNDRY_MODEL environment variable is required but not set")
 
+    tool_choice = definition.get("tool_choice")
+    reasoning_effort = definition.get("reasoning_effort")
+
     return {
         "name": str(parsed.get("name") or ""),
         "version": str(parsed.get("version") or "1"),
@@ -44,6 +47,8 @@ def load_agent_yaml(yaml_path: Path | str | None = None) -> dict[str, Any]:
         "instructions": str(definition.get("instructions") or ""),
         "temperature": float(definition.get("temperature", 1.0)),
         "top_p": float(definition.get("top_p", 1.0)),
+        "tool_choice": str(tool_choice) if tool_choice is not None else None,
+        "reasoning_effort": str(reasoning_effort) if reasoning_effort is not None else None,
         "tools": definition.get("tools") or [],
     }
 
@@ -62,4 +67,6 @@ class CaseAssistantAgentConfig:
             "tools": cfg["tools"],
             "temperature": cfg["temperature"],
             "top_p": cfg["top_p"],
+            "tool_choice": cfg["tool_choice"],
+            "reasoning_effort": cfg["reasoning_effort"],
         }

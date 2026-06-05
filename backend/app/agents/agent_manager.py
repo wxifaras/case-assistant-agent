@@ -12,6 +12,7 @@ from azure.ai.projects.models import (
     AzureAISearchToolResource,
     MCPTool,
     PromptAgentDefinition,
+    Reasoning,
 )
 from azure.core.exceptions import ResourceNotFoundError
 from azure.identity.aio import DefaultAzureCredential
@@ -82,28 +83,30 @@ class AgentManager:
         """
         cfg = tool.get("azure_ai_search") or {}
 
-        # ----- Knowledge-base-backed variant -----
-        kb_name = cfg.get("knowledge_base_name")
-        if kb_name:
-            project_connection_id = cfg.get("project_connection_id") or cfg.get("index_connection_id")
-            if not project_connection_id:
-                connection_name = cfg.get("connection_name")
-                if not connection_name:
-                    raise ValueError(
-                        "azure_ai_search (knowledge_base) tool requires 'project_connection_id' or 'connection_name'"
-                    )
-                project_connection_id = await self._resolve_connection_id(connection_name)
-            return {
-                "type": "azure_ai_search",
-                "azure_ai_search": {
-                    "indexes": [
-                        {
-                            "index_connection_id": project_connection_id,
-                            "knowledge_base_name": kb_name,
-                        }
-                    ],
-                },
-            }
+        # ----- Knowledge-base-backed variant (Foundry IQ) DISABLED -----
+        # The Foundry IQ knowledge base path is no longer used; the agent binds
+        # directly to the Azure AI Search index instead. Kept for reference.
+        # kb_name = cfg.get("knowledge_base_name")
+        # if kb_name:
+        #     project_connection_id = cfg.get("project_connection_id") or cfg.get("index_connection_id")
+        #     if not project_connection_id:
+        #         connection_name = cfg.get("connection_name")
+        #         if not connection_name:
+        #             raise ValueError(
+        #                 "azure_ai_search (knowledge_base) tool requires 'project_connection_id' or 'connection_name'"
+        #             )
+        #         project_connection_id = await self._resolve_connection_id(connection_name)
+        #     return {
+        #         "type": "azure_ai_search",
+        #         "azure_ai_search": {
+        #             "indexes": [
+        #                 {
+        #                     "index_connection_id": project_connection_id,
+        #                     "knowledge_base_name": kb_name,
+        #                 }
+        #             ],
+        #         },
+        #     }
 
         # ----- Index-direct variant (existing behaviour) -----
         indexes_cfg = cfg.get("indexes")
@@ -158,13 +161,23 @@ class AgentManager:
 
         tools = await self._build_tools(cfg.get("tools") or [])
 
-        definition = PromptAgentDefinition(
-            model=cfg["model"],
-            instructions=cfg.get("instructions", ""),
-            temperature=cfg.get("temperature", 1.0),
-            top_p=cfg.get("top_p", 1.0),
-            tools=tools,
-        )
+        definition_kwargs: dict[str, Any] = {
+            "model": cfg["model"],
+            "instructions": cfg.get("instructions", ""),
+            "temperature": cfg.get("temperature", 1.0),
+            "top_p": cfg.get("top_p", 1.0),
+            "tools": tools,
+        }
+
+        tool_choice = cfg.get("tool_choice")
+        if tool_choice:
+            definition_kwargs["tool_choice"] = tool_choice
+
+        reasoning_effort = cfg.get("reasoning_effort")
+        if reasoning_effort:
+            definition_kwargs["reasoning"] = Reasoning(effort=reasoning_effort)
+
+        definition = PromptAgentDefinition(**definition_kwargs)
 
         existing = await self._get_agent_or_none(cfg["name"])
         operation_type = "updated" if existing is not None else "created"
