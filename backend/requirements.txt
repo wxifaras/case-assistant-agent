@@ -24,7 +24,7 @@ PyYAML==6.0.2
 # Configuration and Validation
 pydantic==2.12.5
 pydantic-settings==2.12.0
-azure-appconfiguration-provider>=2.1.0
+azure-appconfiguration-provider==2.4.0
 python-dotenv==1.2.1
 dependency-injector==4.48.3
 
@@ -37,3 +37,9 @@ azure-monitor-opentelemetry-exporter==1.0.0b51
 opentelemetry-api==1.40.0
 opentelemetry-sdk==1.40.0
 opentelemetry-semantic-conventions-ai==0.4.13
+
+# Security
+PyJWT[crypto]==2.10.1
+
+# Microsoft Graph
+msgraph-sdk==1.58.0
