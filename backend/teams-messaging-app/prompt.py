@@ -8,12 +8,10 @@ substituting the site's display name into the template. Edit
 from __future__ import annotations
 
 DEFAULT_PROMPT_TEMPLATE = (
-    'You are writing a brief update for the members of the SharePoint site '
+    'You are writing a brief update for the members of the SharePoint site  '
     'named "{site_name}".\n\n'
-    "Write 3-5 plain-text sentences (no markdown) covering:\n"
-    " - the site's likely purpose,\n"
-    " - any general guidance or reminder relevant to it,\n"
-    " - one suggested next action for members."
+    "Return an executive style summary. With what has been accomplished, status, and next steps.\n"
+    
 )
 
 

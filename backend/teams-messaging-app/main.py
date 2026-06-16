@@ -104,6 +104,15 @@ async def _run() -> None:
                 logger.exception("Broadcast failed")
                 await ctx.send("Broadcast failed — check server logs.")
                 return
+            # Surface each site's agent reply in the Playground / chat so
+            # the operator can see what was generated, then post the
+            # delivery summary.
+            for site_result in result.per_site:
+                if site_result.agent_response:
+                    await ctx.send(
+                        f"[{site_result.site_name}]\n\n"
+                        f"{site_result.agent_response}"
+                    )
             await ctx.send(_format_summary(result))
             return
 
