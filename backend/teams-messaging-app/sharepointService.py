@@ -21,8 +21,8 @@ from typing import Any, Protocol
 from urllib.parse import quote
 
 import httpx
-from dotenv import load_dotenv
 from azure.identity.aio import DefaultAzureCredential
+from dotenv import load_dotenv
 
 # Load .env to ensure DefaultAzureCredential uses EnvironmentCredential (service principal)
 load_dotenv()

@@ -15,7 +15,6 @@ from ._utils import (
     print_detail,
     print_error,
     print_section,
-    print_skip,
     print_warning,
 )
 

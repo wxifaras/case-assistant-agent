@@ -6,9 +6,6 @@ from typing import Optional
 
 from ._utils import (
     _GRAPH_APP_ID,
-    CYAN,
-    WHITE,
-    _c,
     _run_json,
     _run_str,
     print_detail,
