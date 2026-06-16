@@ -38,6 +38,9 @@ class SiteBroadcastResult:
     skipped_unknown: int
     skipped_send_error: int
     error: str | None = None
+    # Raw agent reply for this site. Populated on the success path so the
+    # composition root can surface it in the Playground / triggering chat.
+    agent_response: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,7 +83,6 @@ class SiteBroadcastOrchestrator:
 
     async def run(self) -> BroadcastResult:
         sites = await self._sharepoint.get_sites()
-        logger.info("SharePoint sites fetched: %d", len(sites))
         if not sites:
             logger.info("No SharePoint sites visible — nothing to broadcast")
             return BroadcastResult(total_sites=0, sites_with_members=0)
@@ -109,7 +111,6 @@ class SiteBroadcastOrchestrator:
 
         try:
             prompt = self._build_prompt(site_label)
-            logger.info("Prompt sent to agent for SharePoint site: %s", site_label)
             message_body = await self._agent.ask_oneshot(prompt)
         except Exception as exc:
             logger.exception("Agent call failed for site %s", site_label)
@@ -124,11 +125,6 @@ class SiteBroadcastOrchestrator:
 
         try:
             members = await self._sharepoint.get_site_members(site)
-            logger.info(
-                "SharePoint members fetched for site %s: %d",
-                site_label,
-                len(members),
-            )
         except Exception as exc:
             logger.exception("Member lookup failed for site %s", site_label)
             return SiteBroadcastResult(
@@ -147,6 +143,7 @@ class SiteBroadcastOrchestrator:
                 sent=0,
                 skipped_unknown=0,
                 skipped_send_error=0,
+                agent_response=message_body,
             )
 
         body = f"Update for site '{site_label}':\n\n{message_body}"
@@ -171,4 +168,5 @@ class SiteBroadcastOrchestrator:
             sent=sent,
             skipped_unknown=skipped_unknown,
             skipped_send_error=skipped_send_error,
+            agent_response=message_body,
         )
