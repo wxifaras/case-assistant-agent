@@ -5,7 +5,6 @@ from __future__ import annotations
 import json as _json
 import os
 import tempfile
-from typing import Optional
 
 from ._utils import (
     WHITE,

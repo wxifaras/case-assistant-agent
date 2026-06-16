@@ -554,6 +554,7 @@ Scripts are in `scripts/`:
   * Falls back to `TEST_*` environment variables when flags are not supplied
 * `setup_rbac.py`
   * Assigns Azure RBAC roles for local development and SharePoint sync dependencies
+  * Includes Cosmos DB role setup (control-plane and custom data-plane role assignment) when `--cosmos-account` is provided
   * Can target the signed-in user or a specific principal via `--principal-id`
   * Optional: grants Microsoft Graph app permissions with `--grant-sharepoint-app-permissions`
   * Graph permission mapping:
@@ -563,11 +564,14 @@ Scripts are in `scripts/`:
     * `GroupMember.Read.All`: required to read transitive group members and owners for `member-of` and `members` endpoints
     * `User.Read.All`: required to read user identity attributes (for example id, UPN, email) used in membership matching and response shaping
 * `setup_cosmos_rbac.py`
-  * Creates Cosmos DB custom data-plane role and assignment
+  * Cosmos-only helper that creates Cosmos DB custom data-plane role and assignment
+  * Use when you want to rerun or reconcile only Cosmos RBAC without running full `setup_rbac.py`
 * `check_cosmos_rbac.py`
   * Verifies Cosmos RBAC setup
 
-Recommended order for service principal setup:
+Recommended RBAC script run order:
+
+If you use `azd provision` or `azd up`, the post-provision RBAC hook runs automatically. Use the manual sequence below when you are setting up identities and roles yourself.
 
 1. Create or reuse the app registration and service principal
 
@@ -581,10 +585,18 @@ python scripts/create_service_principal.py --name case-assistant-sharepoint-sync
 python scripts/setup_rbac.py --subscription <subscription-id> --resource-group <resource-group> --principal-id <service-principal-object-id> --principal-type ServicePrincipal --grant-sharepoint-app-permissions
 ```
 
-1. Optionally ensure Cosmos DB custom data-plane role assignment
+`setup_rbac.py` already applies Cosmos RBAC when the Cosmos account is provided (for example via `--cosmos-account` or azd post-provision environment values).
+
+1. Optionally rerun Cosmos-only RBAC setup (for troubleshooting or drift reconciliation)
 
 ```powershell
 python scripts/setup_cosmos_rbac.py --resource-group <resource-group> --account-name <cosmos-account-name> --principal-id <service-principal-object-id>
+```
+
+1. Verify Cosmos DB RBAC role assignment
+
+```powershell
+python scripts/check_cosmos_rbac.py --resource-group <resource-group> --account-name <cosmos-account-name> --principal-id <service-principal-object-id>
 ```
 
 ## Known Limitations

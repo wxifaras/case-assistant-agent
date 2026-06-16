@@ -28,7 +28,6 @@ from ._storage import setup_storage
 from ._utils import (
     CYAN,
     WHITE,
-    YELLOW,
     _c,
     check_prereqs,
     ensure_login,

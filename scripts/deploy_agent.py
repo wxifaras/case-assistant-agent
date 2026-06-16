@@ -446,6 +446,8 @@ async def _delete(endpoint: str, agent_name: str, delete_knowledge_base: bool) -
         logger.warning("SEARCH_ENDPOINT not configured; skipping KB teardown")
         return
 
+    from app.ingestion.search.knowledge_base_service import KnowledgeBaseService
+
     svc = KnowledgeBaseService(search_endpoint=search_endpoint, api_version=settings.knowledge_base.api_version)
     try:
         await svc.delete_knowledge_base_async(kb_options.name)
