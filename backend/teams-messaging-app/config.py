@@ -23,7 +23,7 @@ class AppConfig:
     broadcast_command: str
 
     @classmethod
-    def from_env(cls) -> "AppConfig":
+    def from_env(cls) -> AppConfig:
         load_dotenv()
         project_endpoint = (os.getenv("PROJECT_ENDPOINT") or "").strip()
         agent_name = (os.getenv("AGENT_NAME") or "").strip()

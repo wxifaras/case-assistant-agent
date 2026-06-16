@@ -21,12 +21,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from microsoft_teams.apps import App
-from microsoft_teams.apps.routing.activity_context import ActivityContext
-
 from agentService import FoundryAgentService
 from boardcastOrchestrator import BroadcastResult, SiteBroadcastOrchestrator
 from config import AppConfig
+from microsoft_teams.apps import App
+from microsoft_teams.apps.routing.activity_context import ActivityContext
 from prompt import build_prompt
 from sharepointService import SharePointService
 from teamsMessenger import TeamsMessenger

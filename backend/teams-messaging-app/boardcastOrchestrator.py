@@ -13,8 +13,8 @@ one site do not abort the run; they are recorded in the returned
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from agentService import IAgentService
 from sharepointService import ISharePointService, SharePointSite

@@ -12,7 +12,6 @@ Run from teams-messaging-app directory:
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Protocol
 
 from boardcastOrchestrator import SiteBroadcastOrchestrator
 from prompt import build_prompt
@@ -173,7 +172,7 @@ async def test_orchestrator_loop():
     for i, call in enumerate(agent.calls, 1):
         prompt = call["prompt"]
         logger.info(f"  [{i}] Prompt:\n      {prompt}")
-        
+
         # Each should reference a different site name
         has_site_ref = any(
             name in prompt
