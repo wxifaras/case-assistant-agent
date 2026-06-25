@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "ef1d1dc8-6d03-4bf0-b087-ba8ebcc3211a",
+  "developer": {
+    "name": "Muhammad Hashim Mann",
+    "websiteUrl": "https://example.com",
+    "privacyUrl": "https://example.com/privacy",
+    "termsOfUseUrl": "https://example.com/terms"
+  },
+  "name": {
+    "short": "Foundry Bot",
+    "full": "Foundry Agent Bot"
+  },
+  "description": {
+    "short": "Teams bot connected to an Azure AI Foundry agent.",
+    "full": "A Microsoft Teams bot that routes user messages through Azure Bot Service to a backend service, then calls an Azure AI Foundry agent for responses."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#6264A7",
+  "bots": [
+    {
+      "botId": "9323d0f9-7284-4c58-955b-fbc54653bcc1",
+      "scopes": [
+        "personal"
+      ],
+      "supportsFiles": false,
+      "isNotificationOnly": false
+    }
+  ],
+  "validDomains": [
+    "qblzjqh8-3978.use.devtunnels.ms"
+  ]
+}

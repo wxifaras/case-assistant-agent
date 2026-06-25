@@ -71,7 +71,8 @@ async def _run() -> None:
         agent_name=config.agent_name,
     )
 
-    app = App(skip_auth=True)
+    #app = App(skip_auth=True)
+    app = App()
     messenger = TeamsMessenger(app)
 
     orchestrator = SiteBroadcastOrchestrator(
