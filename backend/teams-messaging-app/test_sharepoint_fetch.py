@@ -9,8 +9,8 @@ Run from teams-messaging-app directory:
 
 import asyncio
 import logging
-
 from dotenv import load_dotenv
+
 from sharepointService import SharePointService
 
 # Load .env BEFORE creating any Azure services
@@ -28,18 +28,18 @@ async def test_sharepoint_fetch():
     try:
         logger.info("Fetching SharePoint sites...")
         sites = await service.get_sites()
-
+        
         if not sites:
             logger.warning("No SharePoint sites found.")
             return
-
+        
         logger.info(f"✓ Found {len(sites)} SharePoint sites:")
         for i, site in enumerate(sites, 1):
             logger.info(
                 f"  [{i}] {site.display_name or site.name} "
                 f"(id={site.id}, web_url={site.web_url})"
             )
-
+        
         # Optionally fetch members for the first site to verify that too
         if sites:
             first_site = sites[0]
@@ -54,8 +54,8 @@ async def test_sharepoint_fetch():
                 )
             if len(members) > 5:
                 logger.info(f"  ... and {len(members) - 5} more")
-
-    except Exception:
+    
+    except Exception as exc:
         logger.exception("Failed to fetch SharePoint data")
         raise
     finally:
